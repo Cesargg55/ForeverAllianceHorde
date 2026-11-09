@@ -13,10 +13,8 @@ OUT = sys.argv[1]
 SW, IF = 1519, 1537
 PLAN = [
   ('zone', 40, 10, 17, "PÁRAMOS DE PONIENTE: sal de Elwynn por el oeste (puente de Villadorada). Base: Colina del Centinela. Descubre el vuelo."),
-  ('class12',),
   ('zone', 38, 14, 19, "LOCH MODAN: vuela/coge el Tranvía Subterráneo a Forjaz y sal por la puerta este de Dun Morogh. Base: Thelsamar."),
   ('zone', 44, 17, 23, "MONTAÑAS CRESTAGRANA: desde Elwynn por el este (Valleoriente). Base: Villa del Lago. Descubre el vuelo."),
-  ('class20',),
   ('dungeon', "Minas de la Muerte (17-24, en Páramos): haz las misiones de Colina del Centinela con grupo. Gran equipo azul."),
   ('zone', 10, 20, 26, "BOSQUE DEL OCASO: al sur de Elwynn. Base: Villa Oscura. Descubre el vuelo."),
   ('zone', 11, 21, 27, "LOS HUMEDALES: al norte de Loch Modan. Base: Puerto de Menethil. Descubre el vuelo."),
@@ -33,7 +31,6 @@ PLAN = [
   ('zone', 3, 36, 44, "TIERRAS INHÓSPITAS: desde Loch Modan al sur. Ojo, zona de mucho JcJ."),
   ('zone', 8, 36, 44, "PANTANO DE LAS PENAS: al este del Bosque del Ocaso. Base: Nethergarde (Tierras Devastadas) / Puesto de la Alianza."),
   ('zone', 33, 37, 45, "VUELVE A TUERCESPINA para las misiones de 40+ (Bahía del Botín)."),
-  ('class40',),
   ('dungeon', "Uldaman (40-47, Tierras Inhóspitas) y Zul'Farrak (44-54, Tanaris)."),
   ('forever', "NUEVO EN FOREVER: SHEN'DRALAS (40-53). Alternativa a Feralas/Tanaris."),
   ('zone', 357, 41, 48, "FERALAS: barco de Auberdine (Costa Oscura) o vuelo a Bastión Plumaluna."),
@@ -56,6 +53,40 @@ PLAN = [
 PALADIN = 2
 done, excluded = set(), set()
 
+# ---------------------------------------------------------------------------
+# Simulación de experiencia (datos XP de Forever de QuestieDB: support/Forever/QuestXP)
+# ---------------------------------------------------------------------------
+import re
+XP_FILES = [os.path.join(qdb.J, 'xpDB.lua'), os.path.join(qdb.J, 'xpTr.lua')]
+QXP = {}
+for f in XP_FILES:
+    if os.path.exists(f):
+        for m in re.finditer(r'\[(\d+)\]\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*\}', open(f, encoding='utf-8').read()):
+            QXP[int(m.group(1))] = (int(m.group(2)), int(m.group(3)))
+# XP necesaria para pasar de nivel N a N+1 (Classic)
+XP_LEVEL = [0, 400, 900, 1400, 2100, 2800, 3600, 4500, 5400, 6500, 7600, 8800, 10100, 11400, 12900, 14400,
+            16000, 17700, 19400, 21300, 23200, 25200, 27300, 29400, 31700, 34000, 36400, 38900, 41400, 44300,
+            47400, 50800, 54500, 58600, 62800, 67100, 71600, 76100, 80800, 85700, 90700, 95800, 101000, 106300,
+            111800, 117500, 123200, 129100, 135100, 141200, 147500, 153900, 160400, 167100, 173900, 180800,
+            187900, 195000, 202300, 209800]
+KILL_FACTOR = float(os.environ.get('KILL_FACTOR', '2.1'))  # XP extra por bichos, misiones de mazmorra y de enlace
+RED = int(os.environ.get('RED', '4'))                       # niveles por encima del tuyo que se aceptan
+sim = {'lvl': 10, 'xp': 0}
+
+def gain(qid):
+    if sim['lvl'] >= 60: return
+    lv, xp = QXP.get(qid, (None, None))
+    if xp is None:
+        q = Q.get(str(qid)); lv = (q and q[4]) or sim['lvl']; xp = 0
+    diff = sim['lvl'] - (lv or sim['lvl'])
+    mult = 1.0 if diff <= 5 else {6: 0.8, 7: 0.6, 8: 0.4, 9: 0.2}.get(diff, 0.1)
+    sim['xp'] += xp * mult * KILL_FACTOR
+    while sim['lvl'] < 60 and sim['xp'] >= XP_LEVEL[sim['lvl']]:
+        sim['xp'] -= XP_LEVEL[sim['lvl']]
+        sim['lvl'] += 1
+
+def L(): return sim['lvl']
+
 def lua_str(s):
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ') + '"'
 
@@ -73,7 +104,7 @@ def es_obj(qid):
         t = ot[0] if isinstance(ot, list) and ot else None
     if not t: return ''
     t = t.replace('$B', ' ').replace('$b', ' ')
-    return (t[:150] + '…') if len(t) > 150 else t
+    return (t[:150] + '...') if len(t) > 150 else t
 
 def npc_es(kind, eid):
     nm = qdb.npc_name(eid) if kind == 'npc' else qdb.obj_name(eid)
@@ -135,7 +166,10 @@ def plan_zone(area, lo, hi, travel):
     pool = [int(k) for k, q in Q.items() if q[16] == area]
     pool = [k for k in pool if usable(k, area)]
     if not pool: return
-    add('go', travel, lv=lo, ui=ui, xy=None)
+    if L() < lo - 1:
+        add('level', 'Antes de ir: sube a nivel %d (mata bichos en tu zona actual, haz una mazmorra o termina misiones pendientes del panel de Progreso).' % (lo - 1), lv=lo - 1)
+        sim['lvl'], sim['xp'] = lo - 1, 0
+    add('go', travel, lv=L(), ui=ui, xy=None)
     est = float(lo)
     total = max(1, len(pool))
     step_lv = (hi - lo) / total
@@ -149,8 +183,10 @@ def plan_zone(area, lo, hi, travel):
             if k in done or k in excluded or k in active: continue
             q = Q[str(k)]
             if not unlocked(q): continue
-            if (q[3] or 1) > est + 1: continue
-            if (q[4] or q[3] or 1) > hi + 1: continue
+            if (q[3] or 1) > L(): continue                       # nivel requerido EXACTO
+            if (q[4] or q[3] or 1) > L() + RED: continue          # demasiado roja todavía
+            if (q[4] or 1) < L() - 7: continue                   # gris: casi no da experiencia
+            if q[31] and q[31] < L(): continue                   # nivel máximo superado
             avail.append(k)
         avail = avail[: max(0, 18 - len(active))]
         if not avail and not active: break
@@ -165,7 +201,7 @@ def plan_zone(area, lo, hi, travel):
         order, pos = nn_order(items, pos or (50, 50))
         for xy, k, kind, eid in order:
             q = Q[str(k)]
-            add('accept', 'Recoge «%s» de %s.' % (es_name(k), npc_es(kind, eid)), q=k, lv=q[4] or q[3], ui=ui, xy=xy)
+            add('accept', 'Recoge «%s» de %s.' % (es_name(k), npc_es(kind, eid)), q=k, lv=L(), ui=ui, xy=xy)
             for ex in (q[15] or []): excluded.add(ex)
             active.append(k)
         # hacer objetivos
@@ -179,7 +215,7 @@ def plan_zone(area, lo, hi, travel):
             q = Q[str(k)]
             obj = es_obj(k)
             where = (' (%s)' % ol[4]) if len(ol) > 4 and isinstance(ol[4], str) and ol[4] != 'trigger' else ''
-            add('do', 'Haz «%s»%s: %s' % (es_name(k), where, obj), q=k, lv=q[4] or q[3], ui=ui, xy=xy)
+            add('do', 'Haz «%s»%s: %s' % (es_name(k), where, obj), q=k, lv=L(), ui=ui, xy=xy)
         # entregar
         items = []
         for k in active:
@@ -188,13 +224,16 @@ def plan_zone(area, lo, hi, travel):
         order, pos = nn_order(items, pos)
         for xy, k, kind, eid in order:
             q = Q[str(k)]
-            add('turnin', 'Entrega «%s» a %s.' % (es_name(k), npc_es(kind, eid)), q=k, lv=q[4] or q[3], ui=ui, xy=xy)
+            add('turnin', 'Entrega «%s» a %s.' % (es_name(k), npc_es(kind, eid)), q=k, lv=L(), ui=ui, xy=xy)
             done.add(k)
-            est = min(hi, est + step_lv)
+            gain(k)
         active = []
-    add('level', 'Deberías estar cerca del nivel %d. Si te falta, mata bichos de la zona mientras recolectas.' % hi, lv=hi)
+    add('level', 'Al terminar esta zona deberías estar en nivel %d. Si vas por debajo, mata bichos de la zona mientras recolectas.' % L(), lv=L())
+    print('  zona %-5s fin nivel %2d (%.0f%%)' % (area, L(), 100 * sim['xp'] / XP_LEVEL[min(L(), 59)]))
 
 def raw(t, txt, q=None, lv=None, area=None, kind=None, eid=None, tip=None):
+    if t == 'turnin' and q:
+        done.add(q); gain(q)
     ui = qdb.AREA2UI.get(area) if area else None
     xy = ent_loc(kind, eid, area) if (kind and area) else None
     add(t, txt, q=q, lv=lv, ui=ui, xy=xy, tip=tip)
@@ -204,7 +243,9 @@ def class12():
     raw('accept', 'Villadorada (posada): recoge «Libro de la Divinidad» del Hermano Wilhelm.', q=2998, lv=12, area=12, kind='npc', eid=927)
     raw('turnin', 'Ventormenta, Catedral de la Luz: entrega a Duthorian Rall.', q=2998, lv=12, area=SW, kind='npc', eid=6171)
     raw('accept', 'Recoge «El Libro de la Divinidad».', q=1641, lv=12, area=SW, kind='npc', eid=6171)
-    raw('turnin', 'Lee el libro que te dan y entrégalo a Duthorian Rall.', q=1642, lv=12, area=SW, kind='npc', eid=6171)
+    raw('turnin', 'Habla otra vez con Duthorian Rall para entregarla.', q=1641, lv=12, area=SW, kind='npc', eid=6171)
+    raw('accept', 'Haz clic derecho en el libro que te ha dado Duthorian Rall (en tus bolsas) para empezar la siguiente misión.', q=1642, lv=12)
+    raw('turnin', 'Entrégalo a Duthorian Rall.', q=1642, lv=12, area=SW, kind='npc', eid=6171)
     raw('accept', 'Recoge el siguiente «El Libro de la Divinidad».', q=1643, lv=12, area=SW, kind='npc', eid=6171)
     raw('turnin', 'Ventormenta (Ciudad Vieja): entrega a Stephanie Turner.', q=1643, lv=12, area=SW, kind='npc', eid=6174)
     raw('accept', 'Recoge su encargo (da 1 lino a un mendigo) de Stephanie Turner.', q=1644, lv=13, area=SW, kind='npc', eid=6174)
@@ -225,6 +266,8 @@ def class20():
         tip='Recompensa: una gran arma o escudo. Merece la pena.')
     raw('accept', 'Recoge «Escrito sobre valor» de Duthorian Rall.', q=1793, lv=20, area=SW, kind='npc', eid=6171)
     raw('turnin', 'Entrégasela a Duthorian Rall.', q=1793, lv=20, area=SW, kind='npc', eid=6171)
+    raw('accept', 'Haz clic derecho en el «Escrito sobre valor» que te ha dado (en tus bolsas).', q=1649, lv=20)
+    raw('turnin', 'Entrégaselo a Duthorian Rall.', q=1649, lv=20, area=SW, kind='npc', eid=6171)
     raw('accept', 'Recoge «Libro del valor» (sigue la cadena).', q=1650, lv=23, area=SW, kind='npc', eid=6171)
     raw('turnin', 'Páramos de Poniente (sur, junto a la costa): habla con Daphne Fontana.', q=1650, lv=23, area=40, kind='npc', eid=6182)
     raw('accept', 'Recoge «Libro del valor»: defiéndela de los Defias.', q=1651, lv=25, area=40, kind='npc', eid=6182,
@@ -236,8 +279,10 @@ def class20():
     raw('turnin', 'Dun Morogh: habla con Jordan Fontana.', q=1653, lv=21, area=1, kind='npc', eid=6181)
     raw('accept', 'Recoge «La prueba de rectitud» (materiales).', q=1654, lv=22, area=1, kind='npc', eid=6181,
         tip='Necesitas: carga de Bailor (Loch Modan), madera de roble blanco y la gema Kor (Costa Oscura).')
-    raw('note', 'Loch Modan (Thelsamar): Bailor Petramano te da «Envío de minerales de Bailor».', lv=22, area=38, kind='npc', eid=6241)
+    raw('accept', 'Loch Modan (Thelsamar): recoge «Envío de minerales de Bailor» de Bailor Petramano.', q=1655, lv=22, area=38, kind='npc', eid=6241)
+    raw('turnin', 'Entrega «Envío de minerales de Bailor» a Bailor Petramano.', q=1655, lv=22, area=38, kind='npc', eid=6241)
     raw('turnin', 'Entrega los materiales a Jordan Fontana.', q=1654, lv=22, area=1, kind='npc', eid=6181)
+    raw('accept', 'Recoge la última «La prueba de rectitud» de Jordan Fontana.', q=1806, lv=22, area=1, kind='npc', eid=6181)
     raw('turnin', 'Entrega «La prueba de rectitud» final y elige tu arma.', q=1806, lv=22, area=1, kind='npc', eid=6181,
         tip='Elige el Martillo de Verigan (dos manos): ideal para Reprensión.')
 
@@ -255,7 +300,21 @@ def class60():
     raw('accept', 'Recoge «Énfasis en el sacrificio».', q=7637, lv=60, area=SW, kind='npc', eid=928)
     add('note', 'Sigue la cadena del Corcel (Forjaz, Tierras de la Peste, Scholomance). Necesitas: Gualdrapa de arcanita, Cristal de adivinación y mucho oro.', lv=60)
 
+HAND = os.path.join(os.path.dirname(os.path.abspath(OUT)), 'Data_Ruta.lua')
+hand_ids = []
+if os.path.exists(HAND):
+    for m in re.finditer(r'q=(\d+)', open(HAND, encoding='utf-8').read()):
+        if int(m.group(1)) not in hand_ids: hand_ids.append(int(m.group(1)))
+done.update(hand_ids)
+
+CLASS_BLOCKS = [(12, 'class12'), (20, 'class20'), (40, 'class40')]
+def emit_class_blocks():
+    while CLASS_BLOCKS and L() >= CLASS_BLOCKS[0][0]:
+        _, name = CLASS_BLOCKS.pop(0)
+        globals()[name]()
+
 for p in PLAN:
+    emit_class_blocks()
     if p[0] == 'zone': plan_zone(p[1], p[2], p[3], p[4])
     elif p[0] == 'dungeon': add('zone', 'MAZMORRA: ' + p[1], lv=None)
     elif p[0] == 'forever': add('zone', p[1], lv=None)
@@ -284,4 +343,32 @@ for s in steps:
     lines.append('  { ' + ', '.join(parts) + ' },')
 lines += ['}', 'for _, s in ipairs(R) do table.insert(GF.Ruta, s) end', '']
 open(OUT, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines))
-print('pasos', len(steps), 'misiones', len(done))
+print('pasos', len(steps), 'misiones', len(done), 'nivel final', L())
+
+# ---------------------------------------------------------------------------
+# Datos de cada misión de la ruta: nivel requerido, previas, exclusivas y nombre
+# ---------------------------------------------------------------------------
+ids = list(hand_ids) + [s['q'] for s in steps if s['q']]
+seen = set()
+qi = ['-- ForeverHumans&Paladins - Datos de las misiones de la ruta (GENERADO, ver tools/planner.py)',
+      '-- rl = nivel requerido, ql = nivel de la misión, pre = una de estas antes, preg = todas estas antes,',
+      '-- ex = exclusiva con, n = nombre en español',
+      'local _, GF = ...', 'GF.QInfo = {']
+
+def lst(v):
+    v = [int(x) for x in (v or []) if x]
+    return ('{' + ','.join(str(x) for x in v) + '}') if v else None
+
+for k in ids:
+    if k in seen or str(k) not in Q: continue
+    seen.add(k)
+    q = Q[str(k)]
+    parts = ['rl=%d' % (q[3] or 1), 'ql=%d' % (q[4] or q[3] or 1)]
+    for key, idx in (('pre', 12), ('preg', 11), ('ex', 15)):
+        s = lst(q[idx])
+        if s: parts.append('%s=%s' % (key, s))
+    parts.append('n=%s' % lua_str(es_name(k)))
+    qi.append('  [%d]={%s},' % (k, ','.join(parts)))
+qi += ['}', '']
+open(os.path.join(os.path.dirname(os.path.abspath(OUT)), 'Data_Misiones.lua'), 'w', encoding='utf-8', newline='\n').write('\n'.join(qi))
+print('info de misiones', len(seen))

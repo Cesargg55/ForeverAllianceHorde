@@ -2,7 +2,7 @@
 local ADDON, GF = ...
 _G.ForeverHP = GF
 
-GF.version = "0.2.0"
+GF.version = "0.3.0"
 GF.Ruta = {}            -- pasos de la guía (Data_Ruta.lua)
 GF.Clases = {}          -- habilidades por clase (Data_Clases.lua)
 GF.Oro = {}             -- farmeos de oro (Data_Oro.lua)
@@ -28,7 +28,9 @@ end
 local defaultsGlobal = { pos = nil, infoPos = nil, scale = 1 }
 local defaultsChar = {
   paso = 1,
-  manual = {},          -- pasos marcados a mano
+  manual = {},          -- pasos marcados a mano ("Hecho")
+  skipped = {},         -- pasos saltados con ">>"
+  deferred = {},        -- [questID] = paso: misiones que aún no podías coger (nivel / previa)
   ocultar = false,
   autoVenderGris = true,
   autoReparar = true,
@@ -117,6 +119,10 @@ function GF:Money(copper)
   return string.format("%s%dc|r", C.naranja, c)
 end
 
+function GF:Level()
+  return math.max(UnitLevel("player") or 1, self.lvlUp or 0)
+end
+
 function GF:PlayerClass()
   local _, class = UnitClass("player")
   return class
@@ -157,10 +163,104 @@ function GF:StepDone(i)
     return self:QuestDone(s.q)
   elseif s.t == "do" and s.q then
     return log[s.q] == true or self:QuestDone(s.q)
-  elseif s.t == "level" and s.lvl then
-    return (UnitLevel("player") or 1) >= s.lvl
+  elseif s.t == "level" and s.lv then
+    return self:Level() >= s.lv
   end
   return false
+end
+
+----------------------------------------------------------------------
+-- Estado real de una misión en el juego
+--   "done"  = entregada        "log" = en tu diario     "ready" = puedes recogerla ya
+--   "level" = te falta nivel   "pre" = te falta una misión previa
+--   "na"    = no aplica (hiciste otra exclusiva con ella)
+----------------------------------------------------------------------
+function GF:QStatus(q)
+  if self:QuestDone(q) then return "done" end
+  local log = self.log or self:ScanQuestLog()
+  if log[q] ~= nil then return "log" end
+  local info = self.QInfo and self.QInfo[q]
+  if not info then return "ready" end
+  if info.ex then
+    for _, e in ipairs(info.ex) do
+      if self:QuestDone(e) or log[e] ~= nil then return "na" end
+    end
+  end
+  if info.pre then
+    local ok = false
+    for _, p in ipairs(info.pre) do if self:QuestDone(p) then ok = true break end end
+    if not ok then return "pre", info.pre[1] end
+  end
+  if info.preg then
+    for _, p in ipairs(info.preg) do if not self:QuestDone(p) then return "pre", p end end
+  end
+  if self:Level() < (info.rl or 1) then return "level", info.rl end
+  return "ready"
+end
+
+function GF:QName(q)
+  local info = self.QInfo and self.QInfo[q]
+  return (info and info.n) or self:QuestTitle(q, "misión " .. tostring(q))
+end
+
+-- ¿Se puede pasar este paso sin pararse? (no está hecho, pero no tiene sentido pararse ahora)
+function GF:StepPass(i)
+  local s = self.Ruta[i]
+  local db = ForeverHP_CharDB
+  if not s then return true end
+  if db.skipped[i] then return true end
+  if not s.q or not self.logReady then return false end
+  local st = self:QStatus(s.q)
+  if st == "level" or st == "pre" then
+    if s.t == "accept" and not db.deferred[s.q] then db.deferred[s.q] = i end
+    return true
+  end
+  if st == "na" then return true end
+  if (s.t == "do" or s.t == "turnin") and st == "ready" then return true end -- no la tienes en el diario
+  return false
+end
+
+-- Misiones pospuestas que ya puedes coger: avisa y, si son de tu zona actual, vuelve a ellas
+function GF:CheckDeferred()
+  local db = ForeverHP_CharDB
+  local back
+  for q, i in pairs(db.deferred) do
+    local st = self:QStatus(q)
+    if st == "done" or st == "log" or st == "na" then
+      db.deferred[q] = nil
+    elseif st == "ready" then
+      db.deferred[q] = nil
+      if i < db.paso and self:Section(i) == self:Section(db.paso) then
+        if not back or i < back then back = i end
+        self:Print(C.verde .. "¡Ya puedes recoger «" .. self:QName(q) .. "»!" .. C.fin .. " La guía vuelve a ella (paso " .. i .. ").")
+      else
+        self:Print(C.verde .. "Ya disponible: «" .. self:QName(q) .. "»" .. C.fin .. " (paso " .. i .. "). Mira " .. C.amarillo .. "/fhp progreso" .. C.fin)
+      end
+    end
+  end
+  if back then db.paso = back end
+end
+
+----------------------------------------------------------------------
+-- Secciones (zonas) de la ruta: empiezan en cada paso "go"
+----------------------------------------------------------------------
+function GF:BuildSections()
+  self.secOf, self.secs = {}, { { name = "Abadía de Northshire y Bosque de Elwynn", first = 1 } }
+  self.firstStepOf = {}
+  for i, s in ipairs(self.Ruta) do
+    if s.t == "go" and i > 1 then
+      local name = (s.txt or ""):match("^([^:]+):") or (s.txt or ""):sub(1, 40)
+      self.secs[#self.secs].last = i - 1
+      table.insert(self.secs, { name = name, first = i })
+    end
+    self.secOf[i] = #self.secs
+    if s.q and not self.firstStepOf[s.q] then self.firstStepOf[s.q] = i end
+  end
+  self.secs[#self.secs].last = #self.Ruta
+end
+
+function GF:Section(i)
+  return self.secOf and self.secOf[i] or 1
 end
 
 -- Firma estable de un paso: permite encontrar tu paso aunque cambie su número entre versiones
@@ -179,29 +279,34 @@ function GF:RelocateProgress()
         self:Print("La guía se ha actualizado: tu progreso se ha movido al paso " .. i .. ".")
         db.paso = i
         db.manual = {}
+        db.skipped = {}
       end
       return
     end
   end
 end
 
--- Avanza mientras el paso actual esté hecho
+-- Avanza mientras el paso actual esté hecho o no se pueda hacer todavía
 function GF:AutoAdvance()
   local db = ForeverHP_CharDB
   local guard = 0
-  while db.paso <= #self.Ruta and self:StepDone(db.paso) and guard < 500 do
+  while db.paso < #self.Ruta and (self:StepDone(db.paso) or self:StepPass(db.paso)) and guard < 2000 do
     db.paso = db.paso + 1
     guard = guard + 1
   end
-  if db.paso > #self.Ruta then db.paso = #self.Ruta end
+end
+
+function GF:AfterChange()
+  self:AutoAdvance()
+  self:Refresh()
+  if self.RefreshProgress then self:RefreshProgress() end
 end
 
 function GF:NextStep()
   local db = ForeverHP_CharDB
   db.manual[db.paso] = true
   if db.paso < #self.Ruta then db.paso = db.paso + 1 end
-  self:AutoAdvance()
-  self:Refresh()
+  self:AfterChange()
 end
 
 function GF:PrevStep()
@@ -209,14 +314,29 @@ function GF:PrevStep()
   if db.paso > 1 then
     db.paso = db.paso - 1
     db.manual[db.paso] = nil
+    db.skipped[db.paso] = nil
   end
   self:Refresh()
+  if self.RefreshProgress then self:RefreshProgress() end
 end
 
 function GF:SkipStep()
   local db = ForeverHP_CharDB
+  db.skipped[db.paso] = true
   if db.paso < #self.Ruta then db.paso = db.paso + 1 end
+  self:AfterChange()
+end
+
+-- Ir a un paso (desde el panel de Progreso): se para ahí aunque lo hubieras saltado
+function GF:JumpTo(i)
+  local db = ForeverHP_CharDB
+  i = math.max(1, math.min(#self.Ruta, tonumber(i) or 1))
+  db.paso = i
+  db.manual[i] = nil
+  db.skipped[i] = nil
+  self:ToggleMain(true)
   self:Refresh()
+  if self.RefreshProgress then self:RefreshProgress() end
 end
 
 function GF:GoToStep(n)
@@ -226,7 +346,9 @@ function GF:GoToStep(n)
   n = math.max(1, math.min(#self.Ruta, n))
   db.paso = n
   for k in pairs(db.manual) do if k >= n then db.manual[k] = nil end end
+  for k in pairs(db.skipped) do if k >= n then db.skipped[k] = nil end end
   self:Refresh()
+  if self.RefreshProgress then self:RefreshProgress() end
 end
 
 -- Salta al primer paso adecuado para tu nivel actual (útil si empiezas a usar el addon tarde)
@@ -362,8 +484,8 @@ local function Throttled()
     pending = false
     if not ForeverHP_CharDB or not GF.main then return end
     GF:ScanQuestLog()
-    GF:AutoAdvance()
-    GF:Refresh()
+    if GF.logReady then GF:CheckDeferred() end
+    GF:AfterChange()
   end)
 end
 
@@ -375,11 +497,18 @@ ev:SetScript("OnEvent", function(_, event, arg1)
     CopyDefaults(ForeverHP_CharDB, defaultsChar)
   elseif event == "PLAYER_LOGIN" then
     GF:BuildSkillIndex()
+    GF:BuildSections()
     GF:RelocateProgress()
     GF:CreateMainFrame()
     GF:ScanQuestLog()
-    GF:AutoAdvance()
     GF:Refresh()
+    -- Esperamos a que el servidor mande el diario de misiones antes de saltar pasos
+    C_Timer.After(4, function()
+      GF.logReady = true
+      GF:ScanQuestLog()
+      GF:CheckDeferred()
+      GF:AfterChange()
+    end)
     GF:Print("Cargada v" .. GF.version .. ". Escribe " .. C.amarillo .. "/guia" .. C.fin .. " para ver los comandos.")
     if ForeverHP_CharDB.paso == 1 and (UnitLevel("player") or 1) > 3 then
       GF:Print("Ya no eres nivel 1. Escribe " .. C.amarillo .. "/guia nivel" .. C.fin .. " para saltar a la parte de la guía de tu nivel.")
@@ -387,6 +516,7 @@ ev:SetScript("OnEvent", function(_, event, arg1)
   elseif event == "QUEST_LOG_UPDATE" or event == "QUEST_TURNED_IN" or event == "QUEST_ACCEPTED" then
     Throttled()
   elseif event == "PLAYER_LEVEL_UP" then
+    GF.lvlUp = arg1
     GF:OnLevelUp(arg1)
     Throttled()
   elseif event == "PLAYER_MONEY" then
@@ -422,6 +552,7 @@ SlashCmdList.GUIAFOREVER = function(msg)
     GF:Print(C.amarillo .. "/guia jcj" .. C.fin .. " - consejos de JcJ para tu clase")
     GF:Print(C.amarillo .. "/guia clases" .. C.fin .. " - qué clase elegir (Humano)")
     GF:Print(C.amarillo .. "/guia novedades" .. C.fin .. " - qué hay nuevo en Forever")
+    GF:Print(C.amarillo .. "/fhp progreso" .. C.fin .. " - por dónde vas, qué has hecho y qué te has saltado")
     GF:Print(C.amarillo .. "/guia nivel" .. C.fin .. " - saltar al paso de tu nivel · " .. C.amarillo .. "/guia paso N" .. C.fin)
     GF:Print(C.amarillo .. "/guia objetivo 150" .. C.fin .. " - fijar objetivo de ahorro en oro (0 = automático)")
     GF:Print(C.amarillo .. "/guia vender | reparar | avisos" .. C.fin .. " - activar/desactivar automatismos")
@@ -434,6 +565,7 @@ SlashCmdList.GUIAFOREVER = function(msg)
   elseif cmd == "jcj" or cmd == "pvp" then GF:ShowInfo("jcj")
   elseif cmd == "clases" then GF:ShowInfo("clases")
   elseif cmd == "novedades" then GF:ShowInfo("novedades")
+  elseif cmd == "progreso" or cmd == "prog" then GF:ToggleProgress(true)
   elseif cmd == "nivel" then GF:SyncToLevel()
   elseif cmd == "paso" then GF:GoToStep(rest)
   elseif cmd == "objetivo" then
@@ -453,6 +585,8 @@ SlashCmdList.GUIAFOREVER = function(msg)
   elseif cmd == "reset" then
     ForeverHP_CharDB.paso = 1
     ForeverHP_CharDB.manual = {}
+    ForeverHP_CharDB.skipped = {}
+    ForeverHP_CharDB.deferred = {}
     GF:AutoAdvance()
     GF:Refresh()
     GF:Print("Guía reiniciada.")

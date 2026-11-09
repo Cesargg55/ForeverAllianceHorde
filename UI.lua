@@ -55,7 +55,7 @@ end
 function GF:CreateMainFrame()
   if self.main then return end
   local f = CreateFrame("Frame", "ForeverHPMain", UIParent, BACKDROP_T)
-  f:SetSize(360, 200)
+  f:SetSize(374, 200)
   SetBackdrop(f)
   Movable(f, "pos")
   local pos = ForeverHP_DB.pos
@@ -113,7 +113,7 @@ function GF:CreateMainFrame()
   -- Botones de navegación
   local prev = MakeButton(f, "<", 30, function() GF:PrevStep() end)
   prev:SetPoint("BOTTOMLEFT", 8, 8)
-  local done = MakeButton(f, "Hecho >", 70, function() GF:NextStep() end)
+  local done = MakeButton(f, "Hecho >", 60, function() GF:NextStep() end)
   done:SetPoint("LEFT", prev, "RIGHT", 2, 0)
   local skip = MakeButton(f, ">>", 30, function() GF:SkipStep() end)
   skip:SetPoint("LEFT", done, "RIGHT", 2, 0)
@@ -121,14 +121,24 @@ function GF:CreateMainFrame()
   skip:SetScript("OnLeave", GameTooltip_Hide)
 
   local function Info(label, key, anchor)
-    local b = MakeButton(f, label, 48, function() GF:ShowInfo(key) end)
+    local b = MakeButton(f, label, 42, function() GF:ShowInfo(key) end)
     b:SetPoint("LEFT", anchor, "RIGHT", 2, 0)
     return b
   end
   local b1 = Info("Habil.", "habilidades", skip)
   local b2 = Info("Oro", "oro", b1)
   local b3 = Info("Prof.", "prof", b2)
-  Info("JcJ", "jcj", b3)
+  local b4 = Info("JcJ", "jcj", b3)
+  -- Progreso: muestra cuántas misiones te has saltado y puedes hacer ya
+  f.prog = MakeButton(f, "Prog.", 52, function() GF:ToggleProgress() end)
+  f.prog:SetPoint("LEFT", b4, "RIGHT", 2, 0)
+  f.prog:SetScript("OnEnter", function(b)
+    GameTooltip:SetOwner(b, "ANCHOR_TOP")
+    GameTooltip:SetText("Progreso")
+    GameTooltip:AddLine("Por dónde vas, qué has hecho y qué te has saltado.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  f.prog:SetScript("OnLeave", GameTooltip_Hide)
 
   self.main = f
   if ForeverHP_CharDB.ocultar then f:Hide() end
@@ -168,6 +178,10 @@ function GF:Refresh()
     lvTxt = "  " .. col .. "(nv " .. s.lv .. ")" .. C.fin
   end
   f.counter:SetText("Paso " .. i .. "/" .. #self.Ruta)
+  if f.prog and self.logReady then
+    local n = self:SkippedReadyCount()
+    f.prog:SetText(n > 0 and (C.naranja .. "Prog." .. n .. C.fin) or "Prog.")
+  end
   f.tipo:SetText(tipo[1] .. tipo[2] .. C.fin .. lvTxt)
 
   local txt = s.txt or ""

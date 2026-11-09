@@ -10,6 +10,8 @@ Guía paso a paso **1-60** para **World of Warcraft: Forever**, pensada para jug
 - **Ahorro:** barra de oro con el objetivo según el nivel (montura a 40, montura rápida a 60).
 - **Vendedor:** vende los grises y repara solo.
 - **Pestañas de ayuda:** Habilidades, Talentos, Oro (farmeos por nivel), Profesiones (qué recetas comprar y qué craftear), JcJ, Clases y Novedades de Forever.
+- **Sabe qué misiones puedes coger:** comprueba en el juego tu nivel y si has hecho las misiones previas. Si una misión aún no está disponible, la pospone. Cuando ya puedas cogerla te avisa y, si estás en esa zona, la guía vuelve a ella.
+- **Panel de Progreso** (botón **Prog.** o `/fhp progreso`): por dónde vas, % de misiones hechas, lo que te has saltado (con botón **Ir**), lo pendiente y por qué (nivel o misión previa), tu diario y el estado de cada zona.
 - **Progreso por personaje.** Si una versión nueva cambia la ruta, el addon te recoloca en tu paso.
 
 ## Instalación
@@ -25,6 +27,7 @@ Guía paso a paso **1-60** para **World of Warcraft: Forever**, pensada para jug
 | Comando | Qué hace |
 |---|---|
 | `/fhp` o `/guia` | Muestra la ventana y la lista de comandos |
+| `/fhp progreso` | Panel de progreso: hecho, saltado y pendiente |
 | `/fhp habilidades` | Qué habilidades comprar y cuáles no |
 | `/fhp talentos` | Qué talentos coger |
 | `/fhp oro` | Farmeos de oro para tu nivel y reglas de ahorro |
@@ -40,7 +43,8 @@ Guía paso a paso **1-60** para **World of Warcraft: Forever**, pensada para jug
 ## Cómo está hecha la ruta
 
 - **1-10 (Elwynn):** escrita a mano.
-- **10-60:** generada con [`tools/planner.py`](tools/planner.py) a partir de los datos de Forever de [QuestieDB](https://github.com/Questie/QuestieDB): IDs de misión, PNJ, coordenadas en los mapas de Forever y nombres en español. Recorre las zonas en orden clásico de Alianza. En cada zona recoges las misiones, haces los objetivos por cercanía y las entregas, y las cadenas se desbloquean en orden. Las misiones de clase del Paladín (12, 20, 40 y 60) están escritas a mano.
+- **10-60:** generada con [`tools/planner.py`](tools/planner.py) a partir de los datos de Forever de [QuestieDB](https://github.com/Questie/QuestieDB): IDs de misión, PNJ, coordenadas en los mapas de Forever, nombres en español y experiencia de cada misión. Recorre las zonas en orden clásico de Alianza. **Simula tu experiencia** misión a misión y solo te manda a recoger una misión cuando tendrías el nivel requerido y las previas hechas. Las misiones de clase del Paladín (12, 20, 40 y 60) se colocan en cuanto llegas a su nivel.
+- `Data_Misiones.lua` guarda el nivel requerido, las previas y las exclusivas de cada misión, para que el addon lo compruebe en el juego.
 
 Para regenerar la ruta:
 
