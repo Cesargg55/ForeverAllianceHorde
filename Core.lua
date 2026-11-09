@@ -1,0 +1,462 @@
+-- ForeverHumans&Paladins - Núcleo: base de datos, utilidades, eventos y comandos
+local ADDON, GF = ...
+_G.ForeverHP = GF
+
+GF.version = "0.2.0"
+GF.Ruta = {}            -- pasos de la guía (Data_Ruta.lua)
+GF.Clases = {}          -- habilidades por clase (Data_Clases.lua)
+GF.Oro = {}             -- farmeos de oro (Data_Oro.lua)
+GF.Profesiones = {}     -- profesiones (Data_Profesiones.lua)
+GF.JcJ = {}             -- JcJ (Data_JcJ.lua)
+
+-- Colores
+GF.C = {
+  oro = "|cffffd100", verde = "|cff33ff66", rojo = "|cffff4040", amarillo = "|cffffff55",
+  gris = "|cff9d9d9d", azul = "|cff3fbfff", naranja = "|cffff9933", blanco = "|cffffffff",
+  morado = "|cffa335ee", fin = "|r",
+}
+local C = GF.C
+
+function GF:Print(...)
+  local msg = table.concat({ ... }, " ")
+  DEFAULT_CHAT_FRAME:AddMessage(C.oro .. "[FH&P]" .. C.fin .. " " .. msg)
+end
+
+----------------------------------------------------------------------
+-- Base de datos
+----------------------------------------------------------------------
+local defaultsGlobal = { pos = nil, infoPos = nil, scale = 1 }
+local defaultsChar = {
+  paso = 1,
+  manual = {},          -- pasos marcados a mano
+  ocultar = false,
+  autoVenderGris = true,
+  autoReparar = true,
+  avisosNivel = true,
+  objetivoOro = nil,    -- en cobre; nil = automático
+}
+
+local function CopyDefaults(dst, src)
+  for k, v in pairs(src) do
+    if dst[k] == nil then
+      if type(v) == "table" then dst[k] = {} ; CopyDefaults(dst[k], v) else dst[k] = v end
+    end
+  end
+end
+
+----------------------------------------------------------------------
+-- Utilidades de juego (con compatibilidad entre versiones de la API)
+----------------------------------------------------------------------
+function GF:SpellName(id)
+  if C_Spell and C_Spell.GetSpellName then
+    local n = C_Spell.GetSpellName(id)
+    if n then return n end
+  end
+  if GetSpellInfo then return (GetSpellInfo(id)) end
+end
+
+function GF:QuestDone(qid)
+  if not qid then return false end
+  if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then
+    return C_QuestLog.IsQuestFlaggedCompleted(qid) and true or false
+  elseif IsQuestFlaggedCompleted then
+    return IsQuestFlaggedCompleted(qid) and true or false
+  end
+  return false
+end
+
+function GF:QuestTitle(qid, fallback)
+  if qid and C_QuestLog then
+    local t
+    if C_QuestLog.GetTitleForQuestID then t = C_QuestLog.GetTitleForQuestID(qid) end
+    if (not t or t == "") and C_QuestLog.GetQuestInfo then t = C_QuestLog.GetQuestInfo(qid) end
+    if t and t ~= "" then return t end
+  end
+  return fallback or ("Misión " .. tostring(qid))
+end
+
+-- Devuelve tabla { [questID] = true(completa) / false(en curso) }
+function GF:ScanQuestLog()
+  local log = {}
+  local n
+  if C_QuestLog and C_QuestLog.GetNumQuestLogEntries then
+    n = C_QuestLog.GetNumQuestLogEntries()
+  elseif GetNumQuestLogEntries then
+    n = GetNumQuestLogEntries()
+  end
+  n = n or 0
+  for i = 1, n do
+    if C_QuestLog and C_QuestLog.GetInfo then
+      local info = C_QuestLog.GetInfo(i)
+      if info and not info.isHeader and info.questID and info.questID > 0 then
+        local comp = false
+        if C_QuestLog.IsComplete then comp = C_QuestLog.IsComplete(info.questID) and true or false end
+        if not comp and info.isComplete and info.isComplete ~= -1 and info.isComplete ~= false and info.isComplete ~= 0 then
+          comp = true
+        end
+        log[info.questID] = comp
+      end
+    elseif GetQuestLogTitle then
+      local _, _, _, isHeader, _, isComplete, _, qid = GetQuestLogTitle(i)
+      if not isHeader and qid and qid > 0 then
+        log[qid] = (isComplete == 1 or isComplete == true)
+      end
+    end
+  end
+  GF.log = log
+  return log
+end
+
+function GF:Money(copper)
+  copper = copper or 0
+  local g = floor(copper / 10000)
+  local s = floor((copper % 10000) / 100)
+  local c = copper % 100
+  if g > 0 then return string.format("%s%dg|r %s%ds|r", C.oro, g, C.gris, s) end
+  if s > 0 then return string.format("%s%ds|r %s%dc|r", C.blanco, s, C.naranja, c) end
+  return string.format("%s%dc|r", C.naranja, c)
+end
+
+function GF:PlayerClass()
+  local _, class = UnitClass("player")
+  return class
+end
+
+-- Objetivo de ahorro automático según nivel/clase
+function GF:GoalInfo()
+  local db = ForeverHP_CharDB
+  if db.objetivoOro then return db.objetivoOro, "Objetivo personal" end
+  local lvl = UnitLevel("player") or 1
+  local class = self:PlayerClass()
+  local montoGratis = (class == "PALADIN" or class == "WARLOCK")
+  if lvl < 40 and not montoGratis then
+    return 100 * 10000, "Montura nivel 40 (aprox., revisa precio real en el vendedor)"
+  elseif lvl < 40 and montoGratis then
+    return 60 * 10000, "Colchón para nv40 (tu montura es de misión de clase: ¡AHORRAS ~100g!)"
+  elseif lvl < 60 then
+    return 300 * 10000, "Reservar para habilidades 40-60 + empezar montura rápida"
+  else
+    return 1000 * 10000, "Montura rápida nivel 60 (~1000g en Forever)"
+  end
+end
+
+----------------------------------------------------------------------
+-- Lógica de pasos
+----------------------------------------------------------------------
+-- Tipos: accept (recoger), turnin (entregar), do (hacer objetivos), go (ir), train (entrenar),
+--        level (subir a nivel X), note (consejo), zone (resumen de zona), prof (profesión)
+function GF:StepDone(i)
+  local s = self.Ruta[i]
+  if not s then return true end
+  local db = ForeverHP_CharDB
+  if db.manual[i] then return true end
+  local log = self.log or self:ScanQuestLog()
+  if s.t == "accept" and s.q then
+    return log[s.q] ~= nil or self:QuestDone(s.q)
+  elseif s.t == "turnin" and s.q then
+    return self:QuestDone(s.q)
+  elseif s.t == "do" and s.q then
+    return log[s.q] == true or self:QuestDone(s.q)
+  elseif s.t == "level" and s.lvl then
+    return (UnitLevel("player") or 1) >= s.lvl
+  end
+  return false
+end
+
+-- Firma estable de un paso: permite encontrar tu paso aunque cambie su número entre versiones
+function GF:StepKey(i)
+  local s = self.Ruta[i]
+  if not s then return nil end
+  return (s.t or "") .. ":" .. tostring(s.q or "") .. ":" .. (s.txt or ""):sub(1, 40)
+end
+
+function GF:RelocateProgress()
+  local db = ForeverHP_CharDB
+  if not db.pasoFirma or self:StepKey(db.paso) == db.pasoFirma then return end
+  for i = 1, #self.Ruta do
+    if self:StepKey(i) == db.pasoFirma then
+      if i ~= db.paso then
+        self:Print("La guía se ha actualizado: tu progreso se ha movido al paso " .. i .. ".")
+        db.paso = i
+        db.manual = {}
+      end
+      return
+    end
+  end
+end
+
+-- Avanza mientras el paso actual esté hecho
+function GF:AutoAdvance()
+  local db = ForeverHP_CharDB
+  local guard = 0
+  while db.paso <= #self.Ruta and self:StepDone(db.paso) and guard < 500 do
+    db.paso = db.paso + 1
+    guard = guard + 1
+  end
+  if db.paso > #self.Ruta then db.paso = #self.Ruta end
+end
+
+function GF:NextStep()
+  local db = ForeverHP_CharDB
+  db.manual[db.paso] = true
+  if db.paso < #self.Ruta then db.paso = db.paso + 1 end
+  self:AutoAdvance()
+  self:Refresh()
+end
+
+function GF:PrevStep()
+  local db = ForeverHP_CharDB
+  if db.paso > 1 then
+    db.paso = db.paso - 1
+    db.manual[db.paso] = nil
+  end
+  self:Refresh()
+end
+
+function GF:SkipStep()
+  local db = ForeverHP_CharDB
+  if db.paso < #self.Ruta then db.paso = db.paso + 1 end
+  self:Refresh()
+end
+
+function GF:GoToStep(n)
+  local db = ForeverHP_CharDB
+  n = tonumber(n)
+  if not n then return end
+  n = math.max(1, math.min(#self.Ruta, n))
+  db.paso = n
+  for k in pairs(db.manual) do if k >= n then db.manual[k] = nil end end
+  self:Refresh()
+end
+
+-- Salta al primer paso adecuado para tu nivel actual (útil si empiezas a usar el addon tarde)
+function GF:SyncToLevel()
+  local lvl = UnitLevel("player") or 1
+  local db = ForeverHP_CharDB
+  for i, s in ipairs(self.Ruta) do
+    if (s.lv or 1) >= lvl then
+      db.paso = i
+      self:AutoAdvance()
+      self:Refresh()
+      self:Print("Saltado al paso " .. db.paso .. " (adecuado para nivel " .. lvl .. ").")
+      return
+    end
+  end
+end
+
+----------------------------------------------------------------------
+-- Flecha / waypoint
+----------------------------------------------------------------------
+function GF:Waypoint(s)
+  if not s or not s.m or not s.x then return end
+  local title = s.txt and s.txt:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") or "ForeverHumans&Paladins"
+  if TomTom and TomTom.AddWaypoint then
+    TomTom:AddWaypoint(s.m, s.x / 100, s.y / 100, { title = title, persistent = false, minimap = true, world = true })
+    self:Print("Flecha de TomTom puesta en " .. s.x .. ", " .. s.y)
+    return
+  end
+  if C_Map and C_Map.SetUserWaypoint and UiMapPoint then
+    local ok = pcall(function()
+      if C_Map.CanSetUserWaypointOnMap and not C_Map.CanSetUserWaypointOnMap(s.m) then error("no") end
+      C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(s.m, s.x / 100, s.y / 100))
+      if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then C_SuperTrack.SetSuperTrackedUserWaypoint(true) end
+    end)
+    if ok then self:Print("Marca puesta en el mapa: " .. s.x .. ", " .. s.y) return end
+  end
+  self:Print("Ve a las coordenadas " .. C.amarillo .. s.x .. ", " .. s.y .. C.fin .. " (instala TomTom para tener flecha).")
+end
+
+function GF:MapName(id)
+  if id and C_Map and C_Map.GetMapInfo then
+    local info = C_Map.GetMapInfo(id)
+    if info and info.name then return info.name end
+  end
+  return nil
+end
+
+----------------------------------------------------------------------
+-- Avisos al subir de nivel
+----------------------------------------------------------------------
+function GF:OnLevelUp(lvl)
+  if not ForeverHP_CharDB.avisosNivel then return end
+  self:Print(C.verde .. "¡Nivel " .. lvl .. "!" .. C.fin)
+  if lvl % 2 == 0 then
+    self:Print("Nivel par = habilidades nuevas. Ve a tu entrenador: el addon te marcará " ..
+      C.verde .. "qué comprar" .. C.fin .. " y " .. C.rojo .. "qué NO" .. C.fin .. ".")
+  end
+  local farm = self:GoldTipForLevel(lvl)
+  if farm then self:Print(C.oro .. "Oro a tu nivel:" .. C.fin .. " " .. farm) end
+  if lvl == 10 then self:Print("Nivel 10: talentos desbloqueados. Escribe " .. C.amarillo .. "/guia talentos" .. C.fin) end
+  if lvl == 40 then self:Print("Nivel 40: montura y doble especialización (50g en el entrenador). " .. C.amarillo .. "/guia oro" .. C.fin) end
+end
+
+----------------------------------------------------------------------
+-- Venta de grises y reparación
+----------------------------------------------------------------------
+local function ContainerInfo(bag, slot)
+  if C_Container and C_Container.GetContainerItemInfo then
+    return C_Container.GetContainerItemInfo(bag, slot)
+  end
+  local _, count, _, quality, _, _, link, _, noValue = GetContainerItemInfo(bag, slot)
+  if link then return { stackCount = count, quality = quality, hyperlink = link, hasNoValue = noValue } end
+end
+local function NumSlots(bag)
+  if C_Container and C_Container.GetContainerNumSlots then return C_Container.GetContainerNumSlots(bag) or 0 end
+  return GetContainerNumSlots(bag) or 0
+end
+local function UseItem(bag, slot)
+  if C_Container and C_Container.UseContainerItem then C_Container.UseContainerItem(bag, slot) else UseContainerItem(bag, slot) end
+end
+
+function GF:OnMerchant()
+  local db = ForeverHP_CharDB
+  if db.autoReparar and CanMerchantRepair and CanMerchantRepair() then
+    local cost, need = GetRepairAllCost()
+    if need and cost and cost > 0 and GetMoney() >= cost then
+      RepairAllItems()
+      self:Print("Reparado por " .. self:Money(cost) .. ".")
+    end
+  end
+  if db.autoVenderGris then
+    local total, n = 0, 0
+    for bag = 0, 4 do
+      for slot = 1, NumSlots(bag) do
+        local info = ContainerInfo(bag, slot)
+        if info and info.quality == 0 and not info.hasNoValue and info.hyperlink then
+          local price = select(11, GetItemInfo(info.hyperlink)) or 0
+          if price > 0 then
+            total = total + price * (info.stackCount or 1)
+            n = n + 1
+            UseItem(bag, slot)
+          end
+        end
+      end
+    end
+    if n > 0 then self:Print("Vendidos " .. n .. " objetos grises por " .. self:Money(total) .. ".") end
+  end
+  self:Print(C.gris .. "Recuerda: NO compres armas/armaduras al vendedor. Las misiones te dan equipo gratis." .. C.fin)
+end
+
+----------------------------------------------------------------------
+-- Eventos
+----------------------------------------------------------------------
+local ev = CreateFrame("Frame")
+GF.eventFrame = ev
+ev:RegisterEvent("ADDON_LOADED")
+ev:RegisterEvent("PLAYER_LOGIN")
+ev:RegisterEvent("QUEST_LOG_UPDATE")
+ev:RegisterEvent("QUEST_TURNED_IN")
+ev:RegisterEvent("QUEST_ACCEPTED")
+ev:RegisterEvent("PLAYER_LEVEL_UP")
+ev:RegisterEvent("PLAYER_MONEY")
+ev:RegisterEvent("MERCHANT_SHOW")
+ev:RegisterEvent("TRAINER_SHOW")
+ev:RegisterEvent("TRAINER_UPDATE")
+ev:RegisterEvent("TRAINER_CLOSED")
+
+local pending = false
+local function Throttled()
+  if pending then return end
+  pending = true
+  C_Timer.After(0.3, function()
+    pending = false
+    if not ForeverHP_CharDB or not GF.main then return end
+    GF:ScanQuestLog()
+    GF:AutoAdvance()
+    GF:Refresh()
+  end)
+end
+
+ev:SetScript("OnEvent", function(_, event, arg1)
+  if event == "ADDON_LOADED" and arg1 == ADDON then
+    ForeverHP_DB = ForeverHP_DB or {}
+    ForeverHP_CharDB = ForeverHP_CharDB or {}
+    CopyDefaults(ForeverHP_DB, defaultsGlobal)
+    CopyDefaults(ForeverHP_CharDB, defaultsChar)
+  elseif event == "PLAYER_LOGIN" then
+    GF:BuildSkillIndex()
+    GF:RelocateProgress()
+    GF:CreateMainFrame()
+    GF:ScanQuestLog()
+    GF:AutoAdvance()
+    GF:Refresh()
+    GF:Print("Cargada v" .. GF.version .. ". Escribe " .. C.amarillo .. "/guia" .. C.fin .. " para ver los comandos.")
+    if ForeverHP_CharDB.paso == 1 and (UnitLevel("player") or 1) > 3 then
+      GF:Print("Ya no eres nivel 1. Escribe " .. C.amarillo .. "/guia nivel" .. C.fin .. " para saltar a la parte de la guía de tu nivel.")
+    end
+  elseif event == "QUEST_LOG_UPDATE" or event == "QUEST_TURNED_IN" or event == "QUEST_ACCEPTED" then
+    Throttled()
+  elseif event == "PLAYER_LEVEL_UP" then
+    GF:OnLevelUp(arg1)
+    Throttled()
+  elseif event == "PLAYER_MONEY" then
+    if GF.RefreshMoney then GF:RefreshMoney() end
+  elseif event == "MERCHANT_SHOW" then
+    GF:OnMerchant()
+  elseif event == "TRAINER_SHOW" or event == "TRAINER_UPDATE" then
+    if GF.OnTrainer then
+      -- pequeño retraso para que la ventana de Blizzard ya esté abierta y podamos anclarnos a ella
+      C_Timer.After(0.1, function() GF:OnTrainer(event) end)
+    end
+  elseif event == "TRAINER_CLOSED" then
+    if GF.OnTrainerClosed then GF:OnTrainerClosed() end
+  end
+end)
+
+----------------------------------------------------------------------
+-- Comandos
+----------------------------------------------------------------------
+SLASH_GUIAFOREVER1 = "/fhp"
+SLASH_GUIAFOREVER2 = "/guia"
+SlashCmdList.GUIAFOREVER = function(msg)
+  msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+  local cmd, rest = msg:match("^(%S*)%s*(.-)$")
+  if cmd == "" then
+    GF:ToggleMain(true)
+    GF:Print("Comandos:")
+    GF:Print(C.amarillo .. "/guia ocultar|mostrar" .. C.fin .. " - ventana de la guía")
+    GF:Print(C.amarillo .. "/guia habilidades" .. C.fin .. " - qué habilidades comprar y cuáles NO")
+    GF:Print(C.amarillo .. "/guia talentos" .. C.fin .. " - qué talentos coger")
+    GF:Print(C.amarillo .. "/guia oro" .. C.fin .. " - farmeos de oro para tu nivel y cómo ahorrar")
+    GF:Print(C.amarillo .. "/guia prof" .. C.fin .. " - profesiones, qué recetas comprar y qué craftear")
+    GF:Print(C.amarillo .. "/guia jcj" .. C.fin .. " - consejos de JcJ para tu clase")
+    GF:Print(C.amarillo .. "/guia clases" .. C.fin .. " - qué clase elegir (Humano)")
+    GF:Print(C.amarillo .. "/guia novedades" .. C.fin .. " - qué hay nuevo en Forever")
+    GF:Print(C.amarillo .. "/guia nivel" .. C.fin .. " - saltar al paso de tu nivel · " .. C.amarillo .. "/guia paso N" .. C.fin)
+    GF:Print(C.amarillo .. "/guia objetivo 150" .. C.fin .. " - fijar objetivo de ahorro en oro (0 = automático)")
+    GF:Print(C.amarillo .. "/guia vender | reparar | avisos" .. C.fin .. " - activar/desactivar automatismos")
+  elseif cmd == "ocultar" then GF:ToggleMain(false)
+  elseif cmd == "mostrar" then GF:ToggleMain(true)
+  elseif cmd == "habilidades" or cmd == "hab" then GF:ShowInfo("habilidades")
+  elseif cmd == "talentos" then GF:ShowInfo("talentos")
+  elseif cmd == "oro" then GF:ShowInfo("oro")
+  elseif cmd == "prof" or cmd == "profesiones" then GF:ShowInfo("prof")
+  elseif cmd == "jcj" or cmd == "pvp" then GF:ShowInfo("jcj")
+  elseif cmd == "clases" then GF:ShowInfo("clases")
+  elseif cmd == "novedades" then GF:ShowInfo("novedades")
+  elseif cmd == "nivel" then GF:SyncToLevel()
+  elseif cmd == "paso" then GF:GoToStep(rest)
+  elseif cmd == "objetivo" then
+    local g = tonumber(rest)
+    if g and g > 0 then ForeverHP_CharDB.objetivoOro = g * 10000 else ForeverHP_CharDB.objetivoOro = nil end
+    GF:RefreshMoney()
+    GF:Print("Objetivo de ahorro: " .. (g and g > 0 and (g .. "g") or "automático"))
+  elseif cmd == "vender" then
+    ForeverHP_CharDB.autoVenderGris = not ForeverHP_CharDB.autoVenderGris
+    GF:Print("Vender grises automáticamente: " .. (ForeverHP_CharDB.autoVenderGris and "SÍ" or "NO"))
+  elseif cmd == "reparar" then
+    ForeverHP_CharDB.autoReparar = not ForeverHP_CharDB.autoReparar
+    GF:Print("Reparar automáticamente: " .. (ForeverHP_CharDB.autoReparar and "SÍ" or "NO"))
+  elseif cmd == "avisos" then
+    ForeverHP_CharDB.avisosNivel = not ForeverHP_CharDB.avisosNivel
+    GF:Print("Avisos al subir de nivel: " .. (ForeverHP_CharDB.avisosNivel and "SÍ" or "NO"))
+  elseif cmd == "reset" then
+    ForeverHP_CharDB.paso = 1
+    ForeverHP_CharDB.manual = {}
+    GF:AutoAdvance()
+    GF:Refresh()
+    GF:Print("Guía reiniciada.")
+  else
+    GF:Print("Comando desconocido. Escribe /guia")
+  end
+end

@@ -1,0 +1,28 @@
+# Al crear una etiqueta (p. ej. v0.2.0) se genera un ZIP listo para instalar y se publica en Releases.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Empaquetar el addon
+        run: |
+          mkdir -p dist/ForeverHumansPaladins
+          cp *.toc *.lua LICENSE README.md dist/ForeverHumansPaladins/
+          cd dist && zip -r "ForeverHumansPaladins-${GITHUB_REF_NAME}.zip" ForeverHumansPaladins
+
+      - name: Publicar release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ForeverHumansPaladins-*.zip
+          generate_release_notes: true
