@@ -17,12 +17,12 @@ jobs:
 
       - name: Empaquetar el addon
         run: |
-          mkdir -p dist/ForeverHumansPaladins
-          cp *.toc *.lua LICENSE README.md dist/ForeverHumansPaladins/
-          cd dist && zip -r "ForeverHumansPaladins-${GITHUB_REF_NAME}.zip" ForeverHumansPaladins
+          mkdir -p dist/ForeverAllianceHorde
+          cp *.toc *.lua LICENSE README.md dist/ForeverAllianceHorde/
+          cd dist && zip -r "ForeverAllianceHorde-${GITHUB_REF_NAME}.zip" ForeverAllianceHorde
 
       - name: Publicar release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ForeverHumansPaladins-*.zip
+          files: dist/ForeverAllianceHorde-*.zip
           generate_release_notes: true

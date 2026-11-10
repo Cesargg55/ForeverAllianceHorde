@@ -1,0 +1,23 @@
+## Interface: 16001
+## Title: |cff3fbfffForeverAlliance|r|cffff4040&Horde|r
+## Notes: Guía paso a paso 1-60 para WoW Forever (Alianza y Horda): ruta de misiones según tu raza y clase, qué habilidades comprar y cuáles no, profesiones, oro por nivel y consejos JcJ.
+## Author: César
+## Version: 1.0.0
+## SavedVariables: ForeverAH_DB
+## SavedVariablesPerCharacter: ForeverAH_CharDB
+## IconTexture: Interface\Icons\INV_Misc_Book_09
+## X-License: GPL-3.0
+
+Core.lua
+Data_Ruta_Elwynn.lua
+Data_Ruta_Alianza.lua
+Data_Misiones_Alianza.lua
+Data_Ruta_Horda.lua
+Data_Misiones_Horda.lua
+Data_Clases.lua
+Data_Oro.lua
+Data_Profesiones.lua
+Data_JcJ.lua
+UI.lua
+Trainer.lua
+Progreso.lua

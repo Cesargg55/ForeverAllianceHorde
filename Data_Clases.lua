@@ -1,8 +1,69 @@
--- ForeverHumans&Paladins - Habilidades por clase: qué comprar (SI), qué NO, y opcional (OPC)
--- Los IDs son de hechizos; el addon saca el nombre en TU idioma automáticamente.
--- Regla general para lo que no esté en la lista: compra SIEMPRE el rango nuevo de tu ataque/curación principal;
+-- ForeverAlliance&Horde - Habilidades por clase: qué comprar (SI), qué NO, y opcional (OPC)
+-- Los IDs son de hechizos (rango 1); el addon saca el nombre en TU idioma automáticamente
+-- y lo compara por nombre en el entrenador, así que vale para todos los rangos.
+-- Regla general para lo que no esté en la lista: compra SIEMPRE el rango nuevo de tu ataque principal;
 -- NO compres rangos nuevos de cosas que casi no usas.
 local _, GF = ...
+
+GF.Clases.MAGE = {
+  nombre = "Mago",
+  resumen = "Mucho daño a distancia y mucho control (Nova de Escarcha, Polimorfia). Se hace su propia comida y agua: AHORRAS muchísimo oro subiendo. Tela: si te pegan, mueres rápido, así que pelea siempre desde lejos. Subiendo, ESCARCHA: los bichos van lentos y casi nunca te tocan. A partir de nivel 20-30 puedes matar grupos enteros en área (el mejor farmeo de oro del juego).",
+  skills = {
+    -- Daño
+    { id=116,   v="SI",  why="Descarga de Escarcha: tu ataque principal subiendo (frena al bicho). Compra TODOS los rangos." },
+    { id=133,   v="OPC", why="Bola de Fuego: solo al principio. Si vas de Escarcha NO compres más rangos (ahorras mucho)." },
+    { id=2136,  v="SI",  why="Explosión de fuego: daño instantáneo para rematar al bicho que huye o mientras corres." },
+    { id=122,   v="SI",  why="Nova de Escarcha: congela a todo lo que tienes al lado. Tu botón de 'aléjate de mí'." },
+    { id=120,   v="SI",  why="Cono de frío: daño + lentitud en área. Muy bueno con Nova para matar grupos." },
+    { id=10,    v="SI",  why="Ventisca: el hechizo del farmeo en área. Rango 1 enseguida; los siguientes cuando farmees en grupos." },
+    { id=1449,  v="SI",  why="Explosión Arcana: área a tu alrededor. Con Nova de Escarcha = matas grupos enteros (dinero y experiencia)." },
+    { id=5143,  v="OPC", why="Proyectiles Arcanos: útil al principio. Si vas de Escarcha, solo los primeros rangos." },
+    { id=2948,  v="NO",  why="Agostar: solo para magos de Fuego. Subiendo de Escarcha no lo uses." },
+    { id=2120,  v="NO",  why="Fogonazo (Flamestrike): caro y lento. Ventisca y Explosión Arcana hacen lo mismo mejor." },
+    -- Control y supervivencia
+    { id=118,   v="SI",  why="Polimorfia: convierte un bicho en oveja. Rango 1 subiendo; los siguientes rangos para JcJ a 60." },
+    { id=1953,  v="SI",  why="Traslación (Blink): escapas de raíces y aturdimientos. Imprescindible." },
+    { id=2139,  v="SI",  why="Contrahechizo: corta hechizos (curaciones de los bichos y JcJ). Rango 1 basta." },
+    { id=1463,  v="OPC", why="Escudo de maná: absorbe daño con tu maná. Para emergencias; no hace falta cada rango." },
+    { id=12051, v="SI",  why="Evocación: recuperas maná rápido. Ahorra tiempo de beber." },
+    { id=475,   v="SI",  why="Eliminar maldición menor: quita maldiciones (bichos y JcJ)." },
+    { id=130,   v="OPC", why="Caída lenta: útil en algunas misiones y en JcJ. No es necesaria." },
+    -- Armaduras y mejoras
+    { id=168,   v="SI",  why="Armadura de Escarcha: armadura + frena al que te pega. Hasta que tengas Armadura de hielo." },
+    { id=7302,  v="SI",  why="Armadura de hielo (nv30): la mejor armadura subiendo. Todos los rangos." },
+    { id=6117,  v="OPC", why="Armadura de mago: regeneras maná. Para mazmorras o contra lanzadores en JcJ." },
+    { id=1459,  v="SI",  why="Intelecto Arcano: más maná. Siempre puesto en ti y en el grupo." },
+    { id=6143,  v="OPC", why="Resguardo contra la Escarcha: solo contra magos de Escarcha y algunos jefes." },
+    { id=543,   v="OPC", why="Resguardo contra el Fuego: útil contra bichos de fuego (Garganta de Fuego, Estepas Ardientes)." },
+    { id=604,   v="NO",  why="Amortiguar magia: casi no se usa. No lo compres." },
+    { id=1008,  v="NO",  why="Amplificar magia: casi no se usa. No lo compres." },
+    { id=2855,  v="NO",  why="Detectar magia: inútil subiendo. No lo compres nunca." },
+    -- Conjuros que ahorran oro
+    { id=5504,  v="SI",  why="Conjurar agua: agua GRATIS. Compra TODOS los rangos: es lo que más dinero te ahorra." },
+    { id=587,   v="SI",  why="Conjurar comida: comida GRATIS para ti (y para regalar al grupo)." },
+    { id=759,   v="OPC", why="Conjurar ágata de maná: piedra de maná para emergencias. Útil en mazmorras." },
+    -- Viajes (Horda)
+    { id=3563,  v="SI",  why="Teletransporte: Entrañas (nv20). Viajes gratis a casa: te ahorra mucho tiempo." },
+    { id=3567,  v="SI",  why="Teletransporte: Orgrimmar (nv20). Para Kalimdor sin zepelín." },
+    { id=3566,  v="OPC", why="Teletransporte: Cima del Trueno. Solo si haces mucho en Mulgore/Feralas." },
+    { id=11418, v="OPC", why="Portal: Entrañas (nv40). Los demás te dan propina por un portal = dinero." },
+    { id=11417, v="OPC", why="Portal: Orgrimmar (nv40). Dinero fácil en las capitales y útil para el grupo." },
+    { id=11420, v="NO",  why="Portal: Cima del Trueno. Casi nadie lo pide." },
+  },
+  talentos = {
+    "SUBIR (recomendado): ESCARCHA.",
+    "  10-20: Descarga de Escarcha mejorada (5/5): lanzas más rápido. Luego Precisión elemental (menos fallos).",
+    "  20-30: Fragmentos de hielo (críticos más fuertes), Permaescarcha (lentitud más larga), Gélido (Cold Snap) y Ventisca mejorada si vas a farmear en área.",
+    "  30-40: Canalización de Escarcha (menos maná), Alcance ártico, Hacerse añicos (Shatter: crítico casi seguro en bichos congelados).",
+    "  40: BARRERA DE HIELO (talento clave: un escudo cada 30s). Después Cono de frío mejorado y Bloque de hielo (inmunidad total unos segundos).",
+    "  Combo básico: Descarga de Escarcha -> Descarga de Escarcha -> si llega, Nova de Escarcha -> aléjate -> Descarga -> Explosión de fuego para rematar.",
+    "FARMEO EN ÁREA (desde nv 22-30): Ventisca mejorada + Cono de frío mejorado. Junta 5-10 bichos, Nova, aléjate, Ventisca.",
+    "MAZMORRAS / RAID: FUEGO (Pirotecnia, Combustión) o ARCANO + Escarcha. Para empezar, Escarcha también sirve en mazmorras.",
+    "A nivel 40 coge DOBLE ESPECIALIZACIÓN (50g): Escarcha para subir/farmear + Fuego para mazmorras.",
+    "Forever ha cambiado talentos de todas las clases: si un talento no se llama igual en tu juego, sigue la misma idea (Escarcha: lentitud, congelar y críticos).",
+    "Cambiar talentos se abarata con el tiempo en Forever (baja hasta 1g).",
+  },
+}
 
 GF.Clases.PALADIN = {
   nombre = "Paladín",
@@ -101,17 +162,20 @@ GF.Clases.WARRIOR = {
   },
 }
 
--- Otras clases de Humano (resumen; las listas detalladas de habilidades se pueden ampliar)
-GF.Clases.ROGUE = { nombre="Pícaro", resumen="Mucho daño en ráfaga, rey del JcJ en el mundo abierto. Cuero (nada de armaduras pesadas). Humano + Percepción es fuerte vs otros pícaros.", skills={}, talentos={"Subir: Combate con espadas. JcJ: Sutileza (Preparación) o Combate con espadas."} }
+-- Otras clases (resumen; las listas detalladas de habilidades se pueden ampliar)
+GF.Clases.ROGUE = { nombre="Pícaro", resumen="Mucho daño en ráfaga, rey del JcJ en el mundo abierto. Cuero (nada de armaduras pesadas).", skills={}, talentos={"Subir: Combate con espadas. JcJ: Sutileza (Preparación) o Combate con espadas."} }
 GF.Clases.PRIEST = { nombre="Sacerdote", resumen="El mejor sanador. Sombras pega fuerte y aguanta bien con escudo. Tela.", skills={}, talentos={"Subir: Sombras. Raid: Sagrado/Disciplina."} }
-GF.Clases.MAGE = { nombre="Mago", resumen="Mucho daño a distancia, se hace su comida y agua (AHORRA mucho oro). Tela, muere rápido.", skills={}, talentos={"Subir: Escarcha. Farmeo AoE de oro a partir de nv 30-40."} }
 GF.Clases.WARLOCK = { nombre="Brujo", resumen="Montura gratis a nv40, mascota tanque, muy fuerte en JcJ (miedos). Tela.", skills={}, talentos={"Subir: Aflicción o Demonología."} }
 GF.Clases.HUNTER = { nombre="Cazador", resumen="La clase más fácil para subir solo y farmear oro. Malla a 40.", skills={}, talentos={"Subir: Bestias."} }
+GF.Clases.SHAMAN = { nombre="Chamán", resumen="Malla a 40, se cura, tótems. Mejora (dos manos) para subir.", skills={}, talentos={"Subir: Mejora."} }
+GF.Clases.DRUID = { nombre="Druida", resumen="Lo hace todo: tanque, sanador, daño. Forma de viaje a 30 = muy cómodo para subir.", skills={}, talentos={"Subir: Combate feral."} }
 
-GF.ClasesTexto = {
+-- ¿Qué clase elijo? Un texto por raza (nombre interno de UnitRace). Si tu raza no tiene, sale el de tu facción.
+GF.ClasesTexto = {}
+GF.ClasesTexto.Human = {
   "|cffffd100¿QUÉ CLASE ELIJO? (Humano, Alianza, te gusta armadura vistosa + aguantar + pegar fuerte)|r",
   " ",
-  "|cff33ff661º PALADÍN - RECOMENDADO PARA TI|r",
+  "|cff33ff661º PALADÍN - RECOMENDADO|r",
   "  + Placas (las armaduras más vistosas del juego: sets de Paladín muy dorados y llamativos).",
   "  + Aguanta muchísimo: se cura, Escudo divino, Imposición de manos. Es la clase con MENOS muertes subiendo.",
   "  + Reprensión pega muy fuerte con arma de dos manos (golpes de Sello de mando enormes).",
@@ -130,11 +194,39 @@ GF.ClasesTexto = {
   "|cffff99333º Otras opciones de Humano|r",
   "  Pícaro (mucho daño, sin armadura pesada), Mago (comida/agua gratis), Brujo (montura gratis), Sacerdote.",
   " ",
-  "|cff3fbfffVEREDICTO: Paladín Humano.|r Cumple las 3 cosas que pides: armadura vistosa, aguantar y pegar fuerte.",
-  "Y es la clase más barata de subir. Si luego quieres más daño puro, haz un Guerrero como segundo personaje.",
+  "|cff3fbfffVEREDICTO: Paladín Humano.|r Armadura vistosa, aguanta y pega fuerte. Y es la clase más barata de subir.",
+  "Si luego quieres más daño puro, haz un Guerrero como segundo personaje.",
   " ",
   "|cffffd100RACIALES DE HUMANO EN FOREVER (valores de la beta, pueden variar)|r",
   "  Voluntad de supervivencia: rompe aturdimientos (sustituye la antigua Especialización en mazas). Enorme en JcJ.",
   "  Percepción: detecta sigilo 20s (3 min reutilización). Úsala cuando te salte un pícaro.",
   "  Ruthless: +1% crítico. The Human Spirit: +5/10% Espíritu. Se perdió Diplomacia.",
+}
+
+GF.ClasesTexto.Scourge = {
+  "|cffffd100¿QUÉ CLASE ELIJO CON NO-MUERTO? (Horda, te gusta pegar fuerte, ahorrar y jugar a distancia)|r",
+  " ",
+  "|cff33ff661º MAGO - RECOMENDADO PARA TI|r",
+  "  + Mucho daño a distancia y mucho control: Nova de Escarcha, Polimorfia, Traslación.",
+  "  + Comida y agua GRATIS (las conjuras tú): es la clase que menos gasta subiendo.",
+  "  + El mejor farmeo de oro del juego: matas grupos enteros en área desde nv 22-30.",
+  "  + Teletransportes desde nv20 (viajes gratis) y portales a nv40 (la gente te da propina).",
+  "  + Muy buscado en mazmorras: control de grupos (oveja) y comida/agua para todos.",
+  "  - Tela: si te alcanzan, mueres rápido. Hay que aprender a mantener la distancia.",
+  "  - No se cura: lleva vendas (Primeros auxilios) para emergencias.",
+  " ",
+  "|cff33ff662º BRUJO|r",
+  "  + Montura gratis a nv40, mascota que tanquea por ti. Fuerte en JcJ.",
+  "  - Gasta más (fragmentos de alma, demonios) y es más lento al principio.",
+  " ",
+  "|cffff99333º Otras opciones de No-muerto|r",
+  "  Sacerdote (Sombras, gran sanador), Pícaro (mucho daño), Guerrero (difícil de subir).",
+  " ",
+  "|cff3fbfffVEREDICTO: Mago No-muerto.|r Barato de subir, gran daño, gran control y la raza le sienta muy bien.",
+  " ",
+  "|cffffd100RACIALES DE NO-MUERTO (valores clásicos; Forever ha cambiado raciales y pueden variar)|r",
+  "  Voluntad de los Renegados: rompe miedo, encantamiento y sueño. ENORME en JcJ contra brujos y sacerdotes.",
+  "  Canibalizar: comes cadáveres de humanoides/no-muertos para curarte. Junto con el agua conjurada = cero gastos.",
+  "  Respiración subacuática: aguantas mucho más bajo el agua.",
+  "  Resistencia a las Sombras: menos daño de brujos y sacerdotes de Sombras.",
 }

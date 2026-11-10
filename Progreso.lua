@@ -1,4 +1,4 @@
--- ForeverHumans&Paladins - Panel de Progreso: por dónde vas, qué has hecho y qué te has saltado
+-- ForeverAlliance&Horde - Panel de Progreso: por dónde vas, qué has hecho y qué te has saltado
 local _, GF = ...
 local C = GF.C
 local BACKDROP_T = BackdropTemplateMixin and "BackdropTemplate" or nil
@@ -13,7 +13,7 @@ local ICON_HERE = "|TInterface\\ChatFrame\\ChatFrameExpandArrow:14:14|t"
 ----------------------------------------------------------------------
 -- Devuelve un resumen del estado de todas las misiones de la guía
 function GF:ProgressData()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   local cur = db.paso
   local d = { total = 0, done = 0, secs = {}, skippedReady = {}, blocked = {}, inLog = {} }
   for si, sec in ipairs(self.secs or {}) do d.secs[si] = { name = sec.name, first = sec.first, total = 0, done = 0 } end
@@ -49,7 +49,7 @@ end
 -- Ventana
 ----------------------------------------------------------------------
 local function CreatePanel()
-  local f = CreateFrame("Frame", "ForeverHPProgress", UIParent, BACKDROP_T)
+  local f = CreateFrame("Frame", "ForeverAHProgress", UIParent, BACKDROP_T)
   f:SetSize(440, 500)
   if f.SetBackdrop then
     f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -63,11 +63,11 @@ local function CreatePanel()
   f:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
     local p, _, rp, x, y = self:GetPoint()
-    ForeverHP_DB.progPos = { p, rp, x, y }
+    ForeverAH_DB.progPos = { p, rp, x, y }
   end)
-  local pos = ForeverHP_DB.progPos
+  local pos = ForeverAH_DB.progPos
   if pos then f:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4]) else f:SetPoint("CENTER", -200, 0) end
-  tinsert(UISpecialFrames, "ForeverHPProgress")
+  tinsert(UISpecialFrames, "ForeverAHProgress")
 
   f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   f.title:SetPoint("TOPLEFT", 12, -10)
@@ -93,7 +93,7 @@ local function CreatePanel()
   f.barText = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   f.barText:SetPoint("CENTER")
 
-  local sf = CreateFrame("ScrollFrame", "ForeverHPProgressScroll", f, "UIPanelScrollFrameTemplate")
+  local sf = CreateFrame("ScrollFrame", "ForeverAHProgressScroll", f, "UIPanelScrollFrameTemplate")
   sf:SetPoint("TOPLEFT", 12, -100)
   sf:SetPoint("BOTTOMRIGHT", -32, 12)
   local content = CreateFrame("Frame", nil, sf)
@@ -151,7 +151,7 @@ end
 function GF:RefreshProgress()
   local f = self.progress
   if not f or not f:IsShown() then return end
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   local d = self:ProgressData()
   local cur = db.paso
   local sec = self.secs and self.secs[self:Section(cur)]
@@ -231,7 +231,7 @@ end
 
 -- Número de misiones saltadas que ya puedes hacer (para el botón de la ventana principal)
 function GF:SkippedReadyCount()
-  local cur, n = ForeverHP_CharDB.paso, 0
+  local cur, n = ForeverAH_CharDB.paso, 0
   for q, first in pairs(self.firstStepOf or {}) do
     if first < cur and self:QStatus(q) == "ready" then n = n + 1 end
   end

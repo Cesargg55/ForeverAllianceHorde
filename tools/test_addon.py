@@ -1,15 +1,15 @@
 # Prueba la lógica del addon fuera del juego con una API de WoW simulada (requiere: pip install lupa).
 # Uso: py -I tools/test_addon.py <carpeta_de_lupa_o_site-packages> <carpeta_del_addon>
-import sys, os, re
+# Cada personaje se prueba en un Lua nuevo (como si entraras con otro personaje).
+import sys, os
 sys.path.insert(0, sys.argv[1])          # pylib (lupa)
 ADDON = sys.argv[2]
 from lupa import LuaRuntime
-lua = LuaRuntime(unpack_returned_tuples=True)
 
 STUBS = r'''
 PRINTS = {}
 TIMERS = {}
-STATE = { level = 1, done = {}, log = {} }   -- log[q] = false (en curso) / true (completa)
+STATE = { level = 1, done = {}, log = {}, race = "Human", raceName = "Humano", class = "PALADIN", faction = "Alliance" }
 local function newobj()
   local o = { shown = true, text = "" }
   return setmetatable(o, { __index = function(t, k)
@@ -37,7 +37,9 @@ DEFAULT_CHAT_FRAME = { AddMessage = function(self, m) table.insert(PRINTS, (m:gs
 C_Timer = { After = function(s, fn) table.insert(TIMERS, fn) end }
 function RUN_TIMERS() local n = 0 while #TIMERS > 0 and n < 100 do local fn = table.remove(TIMERS, 1); fn(); n = n + 1 end end
 function UnitLevel() return STATE.level end
-function UnitClass() return "Paladín", "PALADIN" end
+function UnitClass() return STATE.class, STATE.class end
+function UnitRace() return STATE.raceName, STATE.race end
+function UnitFactionGroup() return STATE.faction, STATE.faction end
 function GetMoney() return 12345 end
 C_Spell = { GetSpellName = function(id) return "Hechizo" .. id end }
 C_Map = { GetMapInfo = function(id) return { name = "Mapa" .. id } end }
@@ -50,29 +52,9 @@ C_QuestLog = {
   GetTitleForQuestID = function(q) return nil end,
 }
 '''
-lua.execute(STUBS)
-G = lua.globals()
 
-toc = open(os.path.join(ADDON, 'ForeverHumansPaladins.toc'), encoding='utf-8').read()
-files = [l.strip() for l in toc.splitlines() if l.strip().endswith('.lua')]
-ns = lua.table()
-loader = lua.eval('function(src, name, a, ns) local f, err = load(src, "@" .. name); if not f then error(err) end; return f(a, ns) end')
-for f in files:
-    loader(open(os.path.join(ADDON, f), encoding='utf-8').read(), f, 'ForeverHumansPaladins', ns)
-GF = G.ForeverHP
-
-def fire(ev, *a):
-    for fr in G.FRAMES.values():
-        fn = fr['script_OnEvent']
-        if fn: fn(fr, ev, *a)
-    G.RUN_TIMERS()
-
-def step(): return G.ForeverHP_CharDB.paso
-def cur(): s = GF.Ruta[step()]; return '%s q=%s %s' % (s.t, s.q, (s.txt or '')[:60])
-def prints(clear=True):
-    out = list(G.PRINTS.values());
-    if clear: lua.execute('PRINTS = {}')
-    return out
+toc = open(os.path.join(ADDON, 'ForeverAllianceHorde.toc'), encoding='utf-8').read()
+FILES = [l.strip() for l in toc.splitlines() if l.strip().endswith('.lua')]
 
 ok = True
 def check(cond, msg):
@@ -80,114 +62,171 @@ def check(cond, msg):
     print(('  OK   ' if cond else '  FALLO ') + msg)
     ok = ok and cond
 
-# Lista de pasos de la ruta escrita a mano para preparar estados
-R = [GF.Ruta[i] for i in range(1, len(GF.Ruta) + 1)]
-print('Pasos totales:', len(R))
+class Char:
+    """Un personaje: Lua nuevo, addon cargado, login hecho."""
+    def __init__(self, race, raceName, cls, faction):
+        self.lua = LuaRuntime(unpack_returned_tuples=True)
+        self.lua.execute(STUBS)
+        self.G = self.lua.globals()
+        self.G.STATE.race, self.G.STATE.raceName, self.G.STATE['class'], self.G.STATE.faction = race, raceName, cls, faction
+        ns = self.lua.table()
+        loader = self.lua.eval('function(src, name, a, ns) local f, err = load(src, "@" .. name); if not f then error(err) end; return f(a, ns) end')
+        for f in FILES:
+            loader(open(os.path.join(ADDON, f), encoding='utf-8').read(), f, 'ForeverAllianceHorde', ns)
+        self.GF = self.G.ForeverAH
+        self.fire('ADDON_LOADED', 'ForeverAllianceHorde'); self.fire('PLAYER_LOGIN')
+        self.R = [self.GF.Ruta[i] for i in range(1, len(self.GF.Ruta) + 1)]
+    def fire(self, ev, *a):
+        for fr in self.G.FRAMES.values():
+            fn = fr['script_OnEvent']
+            if fn: fn(fr, ev, *a)
+        self.G.RUN_TIMERS()
+    def step(self): return self.G.ForeverAH_CharDB.paso
+    def cur(self): s = self.GF.Ruta[self.step()]; return '%s q=%s %s' % (s.t, s.q, (s.txt or '')[:60])
+    def prints(self, clear=True):
+        out = list(self.G.PRINTS.values())
+        if clear: self.lua.execute('PRINTS = {}')
+        return out
+    def idx(self, q, t):
+        return next(i for i, s in enumerate(self.R, 1) if s.q == q and s.t == t)
+    def reset(self):
+        self.lua.execute('STATE.log = {}; STATE.done = {}; ForeverAH_CharDB.deferred = {}; ForeverAH_CharDB.skipped = {}; ForeverAH_CharDB.manual = {}')
+    def done_before(self, i, keep=()):
+        for s in self.R[:i-1]:
+            if s.q and s.q not in keep: self.G.STATE.done[s.q] = True
 
-# ---------- Escenario 1: personaje nuevo ----------
-print('Escenario 1: personaje nuevo, nivel 1')
-fire('ADDON_LOADED', 'ForeverHumansPaladins'); fire('PLAYER_LOGIN')
-check(step() == 1, 'empieza en el paso 1 -> ' + cur())
-GF.NextStep(GF)    # nota de bienvenida
-check(R[step()-1].q == 783, 'paso 2 = recoger Una amenaza del interior -> ' + cur())
-G.STATE.log[783] = True; fire('QUEST_ACCEPTED')
-check(R[step()-1].t == 'turnin' and R[step()-1].q == 783, 'al recoger 783 avanza solo a entregarla -> ' + cur())
+def deferral(c, q, lv):
+    """Misión que pide nivel lv: se pospone y la guía vuelve a ella al subir."""
+    c.reset()
+    i = c.idx(q, 'accept')
+    c.G.STATE.level = lv - 1
+    c.done_before(i)
+    c.G.ForeverAH_CharDB.paso = i
+    c.fire('QUEST_LOG_UPDATE')
+    check(c.step() > i, 'no se para en la misión %d (te falta nivel), va a -> %s' % (q, c.cur()))
+    check(c.G.ForeverAH_CharDB.deferred[q] == i, 'la %d queda pospuesta para luego' % q)
+    check(q in [e.q for e in c.GF.ProgressData(c.GF).blocked.values()], 'el panel la muestra en PENDIENTES (necesitas nivel %d)' % lv)
+    c.prints()
+    c.G.STATE.level = lv; c.fire('PLAYER_LEVEL_UP', lv)
+    check(c.step() == i, 'al subir a %d la guía vuelve a la misión %d -> %s' % (lv, q, c.cur()))
+    check(any('Ya puedes recoger' in p for p in c.prints()), 'avisa en el chat: ¡Ya puedes recoger!')
 
-# ---------- Escenario 2: misión que pide nivel 7 (Un peligro con olor a pescado, 40) ----------
-print('Escenario 2: nivel 6 en Villadorada, la misión 40 pide nivel 7')
-i40 = next(i for i, s in enumerate(R, 1) if s.q == 40 and s.t == 'accept')
-G.STATE.level = 6
-# todo lo anterior hecho
-for s in R[:i40-1]:
-    if s.q: G.STATE.done[s.q] = True
-G.STATE.log = lua.table()
-lua.execute('STATE.log = {}')
-G.ForeverHP_CharDB.paso = i40
-for k in list(G.ForeverHP_CharDB.manual.keys()): G.ForeverHP_CharDB.manual[k] = None
-fire('QUEST_LOG_UPDATE')
-check(step() > i40, 'no se para en la misión 40 (te falta nivel), va a -> paso %d %s' % (step(), cur()))
-check(G.ForeverHP_CharDB.deferred[40] == i40, 'la 40 queda pospuesta para luego')
-d = GF.ProgressData(GF)
-blocked = [e.q for e in d.blocked.values()]
-check(40 in blocked, 'el panel la muestra en PENDIENTES (necesitas nivel 7)')
-here = step()
-prints()
-G.STATE.level = 7; fire('PLAYER_LEVEL_UP', 7)
-check(step() == i40, 'al subir a 7 la guía vuelve a la misión 40 (paso %d) -> %s' % (step(), cur()))
-check(any('Ya puedes recoger' in p for p in prints()), 'avisa en el chat: ¡Ya puedes recoger!')
-G.STATE.log[40] = False; fire('QUEST_ACCEPTED')
-check(R[step()-1].q == 40 and R[step()-1].t == 'turnin', 'después de recogerla sigue con su entrega -> ' + cur())
+def skip(c, q, lv):
+    c.reset()
+    c.G.STATE.level = lv
+    i = c.idx(q, 'accept')
+    c.done_before(i)
+    c.G.ForeverAH_CharDB.paso = i
+    c.fire('QUEST_LOG_UPDATE')
+    check(c.step() == i, 'se para en recoger la misión %d -> %s' % (q, c.cur()))
+    c.GF.SkipStep(c.GF)
+    check(c.step() > i, 'tras >> pasa al siguiente -> ' + c.cur())
+    check(q in [e.q for e in c.GF.ProgressData(c.GF).skippedReady.values()], 'el panel la muestra en TE HAS SALTADO con botón Ir')
+    c.GF.JumpTo(c.GF, i)
+    check(c.step() == i, 'el botón Ir vuelve a esa misión')
 
-# ---------- Escenario 3: saltar una misión con >> y verla en el panel ----------
-print('Escenario 3: saltar una misión con >>')
-lua.execute('STATE.log = {}')
-G.STATE.level = 8
-iacc = next(i for i, s in enumerate(R, 1) if s.q == 60 and s.t == 'accept')
-for s in R[:iacc-1]:
-    if s.q: G.STATE.done[s.q] = True
-G.ForeverHP_CharDB.paso = iacc
-fire('QUEST_LOG_UPDATE')
-check(step() == iacc, 'se para en recoger «Las velas de los kóbolds» -> ' + cur())
-GF.SkipStep(GF)
-check(step() > iacc, 'tras >> pasa al siguiente y se salta también sus pasos de hacer/entregar -> ' + cur())
-d = GF.ProgressData(GF)
-sk = [e.q for e in d.skippedReady.values()]
-check(60 in sk, 'el panel la muestra en TE HAS SALTADO con botón Ir')
-GF.JumpTo(GF, iacc)
-check(step() == iacc, 'el botón Ir vuelve a esa misión')
+def in_progress(c, q, lv, keep=()):
+    c.reset()
+    i = c.idx(q, 'do')
+    c.done_before(i, keep=(q,) + tuple(keep))
+    c.G.STATE.log[q] = False
+    for k in keep: c.G.STATE.log[k] = False
+    c.G.STATE.level = lv
+    c.G.ForeverAH_CharDB.paso = i
+    c.fire('QUEST_LOG_UPDATE')
+    check(c.step() == i, 'sigue en el objetivo de la misión %d (paso %d)' % (q, i))
+    c.G.STATE.log[q] = True; c.fire('QUEST_LOG_UPDATE')
+    nxt = c.R[c.step()-1]
+    check(nxt.t == 'turnin' or (nxt.q in keep), 'al completar el objetivo pasa a la siguiente entrega -> ' + c.cur())
 
-# ---------- Escenario 4: César en el paso de la mina de Jaspe ----------
-print('Escenario 4: progreso guardado de César')
-i76 = next(i for i, s in enumerate(R, 1) if s.q == 76 and s.t == 'do')
-lua.execute('STATE.log = {}')
-for k in list(G.STATE.done.keys()): G.STATE.done[k] = None
-for s in R[:i76-1]:
-    if s.q and s.q not in (76, 35, 88): G.STATE.done[s.q] = True
-G.STATE.log[76] = False; G.STATE.log[35] = False; G.STATE.log[88] = False
-G.STATE.level = 9
-G.ForeverHP_CharDB.paso = i76
-fire('QUEST_LOG_UPDATE')
-check(step() == i76, 'sigue en "Explora la mina de Jaspe" (paso %d)' % i76)
-G.STATE.log[76] = True; fire('QUEST_LOG_UPDATE')
-check(R[step()-1].q == 35, 'al explorar la mina pasa a entregar «Más preocupaciones» -> ' + cur())
+def panels(c):
+    try:
+        c.GF.ToggleProgress(c.GF, True); c.GF.RefreshProgress(c.GF)
+        for k in ('habilidades', 'talentos', 'oro', 'prof', 'jcj', 'clases', 'novedades'):
+            c.GF.ShowInfo(c.GF, k)
+        c.GF.Refresh(c.GF)
+        check(True, 'paneles y pestañas abiertos sin errores')
+    except Exception as e:
+        check(False, 'error: %s' % e)
 
-# ---------- Escenario 5: abrir paneles sin errores ----------
-print('Escenario 5: abrir panel de Progreso y ventanas')
-try:
-    GF.ToggleProgress(GF, True); GF.RefreshProgress(GF); GF.ShowInfo(GF, 'habilidades'); GF.Refresh(GF)
-    check(True, 'paneles abiertos sin errores')
-except Exception as e:
-    check(False, 'error: %s' % e)
+def walk(c):
+    c.lua.execute('STATE.log = {}; STATE.done = {}; ForeverAH_CharDB.manual = {}; ForeverAH_CharDB.skipped = {}; ForeverAH_CharDB.deferred = {}')
+    c.G.STATE.level = 1
+    c.G.ForeverAH_CharDB.paso = 1
+    R, G = c.R, c.G
+    guard = 0
+    while guard < 5000:
+        guard += 1
+        i = c.step(); s = R[i-1]
+        if i >= len(R): break
+        if s.t == 'accept' and s.q: G.STATE.log[s.q] = False; c.fire('QUEST_ACCEPTED')
+        elif s.t == 'do' and s.q: G.STATE.log[s.q] = True; c.fire('QUEST_LOG_UPDATE')
+        elif s.t == 'turnin' and s.q: G.STATE.log[s.q] = None; G.STATE.done[s.q] = True; c.fire('QUEST_TURNED_IN')
+        elif s.t == 'level': G.STATE.level = max(G.STATE.level, s.lv or 1); c.fire('PLAYER_LEVEL_UP', G.STATE.level)
+        else: c.GF.NextStep(c.GF)
+        if c.step() == i:
+            if s.lv and s.lv > G.STATE.level:
+                G.STATE.level = s.lv; c.fire('PLAYER_LEVEL_UP', s.lv)
+            if c.step() == i:
+                c.GF.NextStep(c.GF)
+        if s.lv and s.lv > G.STATE.level: G.STATE.level = min(60, s.lv)
+        if s.t == 'note' and 'NIVEL 60' in (s.txt or ''): G.STATE.level = 60; c.fire('PLAYER_LEVEL_UP', 60)
+    check(c.step() >= len(R) - 1, 'recorre la ruta entera (paso %d de %d) en %d acciones' % (c.step(), len(R), guard))
+    d = c.GF.ProgressData(c.GF)
+    print('  misiones hechas %d de %d; saltadas disponibles %d; pendientes %d' % (d.done, d.total, len(d.skippedReady), len(d.blocked)))
+    for e in list(d.skippedReady.values())[:10]:
+        print('   saltada:', e.q, c.GF.QName(c.GF, e.q), 'paso', e.i)
+    for e in list(d.blocked.values())[:10]:
+        print('   bloqueada:', e.q, c.GF.QName(c.GF, e.q), e.st, e.extra, 'paso', e.i)
 
-# ---------- Escenario 6: recorrer toda la ruta simulando que lo haces todo ----------
-print('Escenario 6: recorrer la ruta completa')
-lua.execute('STATE.log = {}; STATE.done = {}')
-G.STATE.level = 1
-G.ForeverHP_CharDB.paso = 1
-lua.execute('ForeverHP_CharDB.manual = {}; ForeverHP_CharDB.skipped = {}; ForeverHP_CharDB.deferred = {}')
-guard = 0
-while guard < 4000:
-    guard += 1
-    i = step(); s = R[i-1]
-    if i >= len(R): break
-    if s.t == 'accept' and s.q: G.STATE.log[s.q] = False; fire('QUEST_ACCEPTED')
-    elif s.t == 'do' and s.q: G.STATE.log[s.q] = True; fire('QUEST_LOG_UPDATE')
-    elif s.t == 'turnin' and s.q: G.STATE.log[s.q] = None; G.STATE.done[s.q] = True; fire('QUEST_TURNED_IN')
-    elif s.t == 'level': G.STATE.level = max(G.STATE.level, s.lv or 1); fire('PLAYER_LEVEL_UP', G.STATE.level)
-    else: GF.NextStep(GF)
-    if step() == i:   # no avanzó: atasco
-        if s.lv and s.lv > G.STATE.level:
-            G.STATE.level = s.lv; fire('PLAYER_LEVEL_UP', s.lv)
-        if step() == i:
-            GF.NextStep(GF)
-    if s.lv and s.lv > G.STATE.level: G.STATE.level = min(60, s.lv)
-    if s.t == 'note' and 'NIVEL 60' in (s.txt or ''): G.STATE.level = 60; fire('PLAYER_LEVEL_UP', 60)
-check(step() >= len(R) - 1, 'llega al final de la ruta (paso %d de %d) en %d acciones' % (step(), len(R), guard))
-d = GF.ProgressData(GF)
-print('  misiones hechas %d de %d; saltadas disponibles %d; pendientes %d' % (d.done, d.total, len(d.skippedReady), len(d.blocked)))
-for e in list(d.skippedReady.values())[:10]:
-    print('   saltada:', e.q, GF.QName(GF, e.q), 'paso', e.i)
-for e in list(d.blocked.values())[:10]:
-    print('   bloqueada:', e.q, GF.QName(GF, e.q), e.st, e.extra, 'paso', e.i)
+def classes_in(c):
+    return sorted(set(s['cl'] for s in c.R if s['cl']))
+
+# ======================================================================
+print('== HUMANO PALADÍN ==')
+c = Char('Human', 'Humano', 'PALADIN', 'Alliance')
+check(c.GF.rutaId == 'alianza', 'elige la ruta de la Alianza')
+check(classes_in(c) == ['PALADIN'], 'solo ve pasos de clase de Paladín: %s' % classes_in(c))
+check(any(s.q == 2998 for s in c.R), 'incluye su misión de clase de nv12 (Libro de la Divinidad)')
+check(c.R[c.step()-1].t == 'note', 'empieza en la nota de bienvenida')
+c.GF.NextStep(c.GF)
+check(c.R[c.step()-1].q == 783, 'paso 2 = recoger «Una amenaza interna» (783) -> ' + c.cur())
+c.G.STATE.log[783] = True; c.fire('QUEST_ACCEPTED')
+check(c.R[c.step()-1].t == 'turnin' and c.R[c.step()-1].q == 783, 'al recogerla avanza solo a entregarla -> ' + c.cur())
+print('- misión que pide nivel 7 (40)'); deferral(c, 40, 7)
+print('- saltar con >> (60)'); skip(c, 60, 8)
+print('- mina de Jaspe en curso (76)'); in_progress(c, 76, 9, keep=(35, 88))
+print('- paneles'); panels(c)
+print('- ruta completa'); walk(c)
+
+print('== NO-MUERTO MAGO ==')
+c = Char('Scourge', 'No-muerto', 'MAGE', 'Horde')
+check(c.GF.rutaId == 'horda', 'elige la ruta de la Horda')
+check(classes_in(c) == ['MAGE'], 'solo ve pasos de clase de Mago: %s' % classes_in(c))
+check(any(s.q == 3098 for s in c.R) and not any(s.q == 3095 for s in c.R), 've la carta de mago (3098) y no la de guerrero (3095)')
+while c.R[c.step()-1].t in ('note', 'go'): c.GF.NextStep(c.GF)
+check(c.R[c.step()-1].q == 363, 'primer paso de misión = recoger «Desvelo brutal» (363) -> ' + c.cur())
+print('- misión que pide nivel 5 (5481)'); deferral(c, 5481, 5)
+print('- saltar con >> (404)'); skip(c, 404, 6)
+print('- misión de clase en curso (1882)'); in_progress(c, 1882, 10)
+print('- paneles'); panels(c)
+print('- ruta completa'); walk(c)
+
+print('== NO-MUERTO GUERRERO ==')
+c = Char('Scourge', 'No-muerto', 'WARRIOR', 'Horde')
+check(classes_in(c) == ['WARRIOR'], 'solo ve su carta de clase: %s' % classes_in(c))
+check(not any(s.q == 1881 for s in c.R), 'no ve las misiones de mago')
+print('- paneles'); panels(c)
+print('- ruta completa'); walk(c)
+
+print('== ENANO CAZADOR (raza sin ruta propia) ==')
+c = Char('Dwarf', 'Enano', 'HUNTER', 'Alliance')
+check(c.GF.rutaId == 'alianza' and c.GF.razaSinRuta == 'Dwarf', 'usa la ruta de su facción y lo avisa')
+check(any('aún no tiene ruta propia' in p for p in c.prints(False)), 'mensaje en el chat')
+c.G.SlashCmdList.GUIAFORAH('ruta horda')
+check(c.GF.rutaId == 'horda' and c.G.ForeverAH_CharDB.ruta == 'horda', '/guia ruta horda cambia de ruta')
+c.G.SlashCmdList.GUIAFORAH('ruta auto')
+check(c.GF.rutaId == 'alianza', '/guia ruta auto vuelve a la automática')
+print('- paneles'); panels(c)
 
 print('RESULTADO:', 'TODO OK' if ok else 'HAY FALLOS')

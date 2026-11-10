@@ -1,9 +1,11 @@
--- ForeverHumans&Paladins - Núcleo: base de datos, utilidades, eventos y comandos
+-- ForeverAlliance&Horde - Núcleo: base de datos, utilidades, eventos y comandos
 local ADDON, GF = ...
-_G.ForeverHP = GF
+_G.ForeverAH = GF
 
-GF.version = "0.3.0"
-GF.Ruta = {}            -- pasos de la guía (Data_Ruta.lua)
+GF.version = "1.0.0"
+GF.Ruta = {}            -- pasos de la guía de TU personaje (se elige al entrar: ver PickRoute)
+GF.Rutas = {}           -- todas las rutas: GF.Rutas[id] = { pasos... } (Data_Ruta_*.lua)
+GF.QInfo = {}           -- datos de cada misión (Data_Misiones_*.lua)
 GF.Clases = {}          -- habilidades por clase (Data_Clases.lua)
 GF.Oro = {}             -- farmeos de oro (Data_Oro.lua)
 GF.Profesiones = {}     -- profesiones (Data_Profesiones.lua)
@@ -17,9 +19,86 @@ GF.C = {
 }
 local C = GF.C
 
+----------------------------------------------------------------------
+-- Rutas disponibles. Para añadir una raza: pon su nombre interno (UnitRace, 2º valor)
+-- en 'razas' de la ruta donde empieza, o crea una ruta nueva y regístrala aquí.
+--   Nombres internos: Human, Dwarf, NightElf, Gnome, Orc, Scourge (No-muerto), Tauren, Troll
+----------------------------------------------------------------------
+GF.RutaMeta = {
+  alianza = { nombre = "Alianza (Humano: Northshire y Elwynn)", inicio = "Abadía de Northshire y Bosque de Elwynn",
+              faccion = "Alliance", razas = { Human = true } },
+  horda   = { nombre = "Horda (No-muerto: Camposanto y Tirisfal)", inicio = "Inicio",
+              faccion = "Horde", razas = { Scourge = true } },
+}
+GF.RutaOrden = { "alianza", "horda" }
+
+-- Lo llaman los archivos de datos: añade pasos al final de una ruta
+function GF:AddRoute(id, pasos)
+  self.Rutas[id] = self.Rutas[id] or {}
+  for _, s in ipairs(pasos) do table.insert(self.Rutas[id], s) end
+end
+
+-- Elige la ruta del personaje (raza -> facción -> la que haya) y se queda solo con los pasos de su clase
+function GF:PickRoute()
+  local db = ForeverAH_CharDB
+  local _, race = UnitRace("player")
+  local faction = UnitFactionGroup and UnitFactionGroup("player")
+  local id = db.ruta
+  self.razaSinRuta = nil
+  if not (id and self.Rutas[id]) then
+    id = nil
+    for _, rid in ipairs(self.RutaOrden) do
+      if self.RutaMeta[rid].razas[race or ""] then id = rid break end
+    end
+    if not id then
+      for _, rid in ipairs(self.RutaOrden) do
+        if self.RutaMeta[rid].faccion == faction then id = rid break end
+      end
+      self.razaSinRuta = race or "?"
+    end
+  end
+  id = id or self.RutaOrden[1]
+  self.rutaId = id
+  local class = self:PlayerClass()
+  self.Ruta = {}
+  for _, s in ipairs(self.Rutas[id] or {}) do
+    if not s.cl or s.cl == class then table.insert(self.Ruta, s) end
+  end
+end
+
+function GF:SetRoute(id)
+  local db = ForeverAH_CharDB
+  if id == "" or id == "auto" then id = nil end
+  if id and not self.Rutas[id] then
+    local ids = {}
+    for _, rid in ipairs(self.RutaOrden) do table.insert(ids, rid) end
+    self:Print("Ruta desconocida. Rutas: " .. table.concat(ids, ", ") .. " (o 'auto').")
+    return
+  end
+  db.ruta = id
+  db.paso, db.manual, db.skipped, db.deferred, db.pasoFirma = 1, {}, {}, {}, nil
+  self:PickRoute()
+  self:BuildSections()
+  self:Print("Ruta: " .. C.amarillo .. self.RutaMeta[self.rutaId].nombre .. C.fin .. ". Escribe " .. C.amarillo .. "/guia nivel" .. C.fin .. " para ir a tu nivel.")
+  self:AutoAdvance()
+  self:Refresh()
+end
+
+-- Facción y raza para los textos de ayuda (si tu raza no tiene textos propios, los de tu facción)
+function GF:Faction()
+  local f = UnitFactionGroup and UnitFactionGroup("player")
+  if f ~= "Alliance" and f ~= "Horde" then f = (self.RutaMeta[self.rutaId or "alianza"] or {}).faccion or "Alliance" end
+  return f
+end
+
+function GF:Race()
+  local _, race = UnitRace("player")
+  return race
+end
+
 function GF:Print(...)
   local msg = table.concat({ ... }, " ")
-  DEFAULT_CHAT_FRAME:AddMessage(C.oro .. "[FH&P]" .. C.fin .. " " .. msg)
+  DEFAULT_CHAT_FRAME:AddMessage(C.oro .. "[FA&H]" .. C.fin .. " " .. msg)
 end
 
 ----------------------------------------------------------------------
@@ -36,6 +115,7 @@ local defaultsChar = {
   autoReparar = true,
   avisosNivel = true,
   objetivoOro = nil,    -- en cobre; nil = automático
+  ruta = nil,           -- ruta elegida a mano (/guia ruta); nil = automática según tu raza
 }
 
 local function CopyDefaults(dst, src)
@@ -130,7 +210,7 @@ end
 
 -- Objetivo de ahorro automático según nivel/clase
 function GF:GoalInfo()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   if db.objetivoOro then return db.objetivoOro, "Objetivo personal" end
   local lvl = UnitLevel("player") or 1
   local class = self:PlayerClass()
@@ -154,7 +234,7 @@ end
 function GF:StepDone(i)
   local s = self.Ruta[i]
   if not s then return true end
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   if db.manual[i] then return true end
   local log = self.log or self:ScanQuestLog()
   if s.t == "accept" and s.q then
@@ -206,7 +286,7 @@ end
 -- ¿Se puede pasar este paso sin pararse? (no está hecho, pero no tiene sentido pararse ahora)
 function GF:StepPass(i)
   local s = self.Ruta[i]
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   if not s then return true end
   if db.skipped[i] then return true end
   if not s.q or not self.logReady then return false end
@@ -222,7 +302,7 @@ end
 
 -- Misiones pospuestas que ya puedes coger: avisa y, si son de tu zona actual, vuelve a ellas
 function GF:CheckDeferred()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   local back
   for q, i in pairs(db.deferred) do
     local st = self:QStatus(q)
@@ -234,7 +314,7 @@ function GF:CheckDeferred()
         if not back or i < back then back = i end
         self:Print(C.verde .. "¡Ya puedes recoger «" .. self:QName(q) .. "»!" .. C.fin .. " La guía vuelve a ella (paso " .. i .. ").")
       else
-        self:Print(C.verde .. "Ya disponible: «" .. self:QName(q) .. "»" .. C.fin .. " (paso " .. i .. "). Mira " .. C.amarillo .. "/fhp progreso" .. C.fin)
+        self:Print(C.verde .. "Ya disponible: «" .. self:QName(q) .. "»" .. C.fin .. " (paso " .. i .. "). Mira " .. C.amarillo .. "/fah progreso" .. C.fin)
       end
     end
   end
@@ -245,7 +325,8 @@ end
 -- Secciones (zonas) de la ruta: empiezan en cada paso "go"
 ----------------------------------------------------------------------
 function GF:BuildSections()
-  self.secOf, self.secs = {}, { { name = "Abadía de Northshire y Bosque de Elwynn", first = 1 } }
+  local meta = self.RutaMeta[self.rutaId or ""]
+  self.secOf, self.secs = {}, { { name = meta and meta.inicio or "Inicio", first = 1 } }
   self.firstStepOf = {}
   for i, s in ipairs(self.Ruta) do
     if s.t == "go" and i > 1 then
@@ -271,7 +352,7 @@ function GF:StepKey(i)
 end
 
 function GF:RelocateProgress()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   if not db.pasoFirma or self:StepKey(db.paso) == db.pasoFirma then return end
   for i = 1, #self.Ruta do
     if self:StepKey(i) == db.pasoFirma then
@@ -288,7 +369,7 @@ end
 
 -- Avanza mientras el paso actual esté hecho o no se pueda hacer todavía
 function GF:AutoAdvance()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   local guard = 0
   while db.paso < #self.Ruta and (self:StepDone(db.paso) or self:StepPass(db.paso)) and guard < 2000 do
     db.paso = db.paso + 1
@@ -303,14 +384,14 @@ function GF:AfterChange()
 end
 
 function GF:NextStep()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   db.manual[db.paso] = true
   if db.paso < #self.Ruta then db.paso = db.paso + 1 end
   self:AfterChange()
 end
 
 function GF:PrevStep()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   if db.paso > 1 then
     db.paso = db.paso - 1
     db.manual[db.paso] = nil
@@ -321,7 +402,7 @@ function GF:PrevStep()
 end
 
 function GF:SkipStep()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   db.skipped[db.paso] = true
   if db.paso < #self.Ruta then db.paso = db.paso + 1 end
   self:AfterChange()
@@ -329,7 +410,7 @@ end
 
 -- Ir a un paso (desde el panel de Progreso): se para ahí aunque lo hubieras saltado
 function GF:JumpTo(i)
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   i = math.max(1, math.min(#self.Ruta, tonumber(i) or 1))
   db.paso = i
   db.manual[i] = nil
@@ -340,7 +421,7 @@ function GF:JumpTo(i)
 end
 
 function GF:GoToStep(n)
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   n = tonumber(n)
   if not n then return end
   n = math.max(1, math.min(#self.Ruta, n))
@@ -354,7 +435,7 @@ end
 -- Salta al primer paso adecuado para tu nivel actual (útil si empiezas a usar el addon tarde)
 function GF:SyncToLevel()
   local lvl = UnitLevel("player") or 1
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   for i, s in ipairs(self.Ruta) do
     if (s.lv or 1) >= lvl then
       db.paso = i
@@ -371,7 +452,7 @@ end
 ----------------------------------------------------------------------
 function GF:Waypoint(s)
   if not s or not s.m or not s.x then return end
-  local title = s.txt and s.txt:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") or "ForeverHumans&Paladins"
+  local title = s.txt and s.txt:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") or "ForeverAlliance&Horde"
   if TomTom and TomTom.AddWaypoint then
     TomTom:AddWaypoint(s.m, s.x / 100, s.y / 100, { title = title, persistent = false, minimap = true, world = true })
     self:Print("Flecha de TomTom puesta en " .. s.x .. ", " .. s.y)
@@ -400,7 +481,7 @@ end
 -- Avisos al subir de nivel
 ----------------------------------------------------------------------
 function GF:OnLevelUp(lvl)
-  if not ForeverHP_CharDB.avisosNivel then return end
+  if not ForeverAH_CharDB.avisosNivel then return end
   self:Print(C.verde .. "¡Nivel " .. lvl .. "!" .. C.fin)
   if lvl % 2 == 0 then
     self:Print("Nivel par = habilidades nuevas. Ve a tu entrenador: el addon te marcará " ..
@@ -408,8 +489,14 @@ function GF:OnLevelUp(lvl)
   end
   local farm = self:GoldTipForLevel(lvl)
   if farm then self:Print(C.oro .. "Oro a tu nivel:" .. C.fin .. " " .. farm) end
-  if lvl == 10 then self:Print("Nivel 10: talentos desbloqueados. Escribe " .. C.amarillo .. "/guia talentos" .. C.fin) end
-  if lvl == 40 then self:Print("Nivel 40: montura y doble especialización (50g en el entrenador). " .. C.amarillo .. "/guia oro" .. C.fin) end
+  if lvl == 10 then self:Print("Nivel 10: talentos desbloqueados (Escarcha para subir). Escribe " .. C.amarillo .. "/guia talentos" .. C.fin) end
+  if lvl == 20 and self:PlayerClass() == "MAGE" then
+    self:Print("Nivel 20: aprende " .. C.verde .. "Teletransporte: Entrañas" .. C.fin .. " y " .. C.verde .. "Orgrimmar" .. C.fin .. ". Viajar te sale casi gratis.")
+  end
+  if lvl == 40 then
+    local extra = self:PlayerClass() == "MAGE" and ", portales" or ""
+    self:Print("Nivel 40: montura" .. extra .. " y doble especialización (50g en el entrenador). " .. C.amarillo .. "/guia oro" .. C.fin)
+  end
 end
 
 ----------------------------------------------------------------------
@@ -431,7 +518,7 @@ local function UseItem(bag, slot)
 end
 
 function GF:OnMerchant()
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   if db.autoReparar and CanMerchantRepair and CanMerchantRepair() then
     local cost, need = GetRepairAllCost()
     if need and cost and cost > 0 and GetMoney() >= cost then
@@ -457,6 +544,9 @@ function GF:OnMerchant()
     if n > 0 then self:Print("Vendidos " .. n .. " objetos grises por " .. self:Money(total) .. ".") end
   end
   self:Print(C.gris .. "Recuerda: NO compres armas/armaduras al vendedor. Las misiones te dan equipo gratis." .. C.fin)
+  if self:PlayerClass() == "MAGE" then
+    self:Print(C.gris .. "Mago: no compres comida ni agua. Conjúrala tú (gratis)." .. C.fin)
+  end
 end
 
 ----------------------------------------------------------------------
@@ -482,7 +572,7 @@ local function Throttled()
   pending = true
   C_Timer.After(0.3, function()
     pending = false
-    if not ForeverHP_CharDB or not GF.main then return end
+    if not ForeverAH_CharDB or not GF.main then return end
     GF:ScanQuestLog()
     if GF.logReady then GF:CheckDeferred() end
     GF:AfterChange()
@@ -491,11 +581,12 @@ end
 
 ev:SetScript("OnEvent", function(_, event, arg1)
   if event == "ADDON_LOADED" and arg1 == ADDON then
-    ForeverHP_DB = ForeverHP_DB or {}
-    ForeverHP_CharDB = ForeverHP_CharDB or {}
-    CopyDefaults(ForeverHP_DB, defaultsGlobal)
-    CopyDefaults(ForeverHP_CharDB, defaultsChar)
+    ForeverAH_DB = ForeverAH_DB or {}
+    ForeverAH_CharDB = ForeverAH_CharDB or {}
+    CopyDefaults(ForeverAH_DB, defaultsGlobal)
+    CopyDefaults(ForeverAH_CharDB, defaultsChar)
   elseif event == "PLAYER_LOGIN" then
+    GF:PickRoute()
     GF:BuildSkillIndex()
     GF:BuildSections()
     GF:RelocateProgress()
@@ -509,8 +600,13 @@ ev:SetScript("OnEvent", function(_, event, arg1)
       GF:CheckDeferred()
       GF:AfterChange()
     end)
-    GF:Print("Cargada v" .. GF.version .. ". Escribe " .. C.amarillo .. "/guia" .. C.fin .. " para ver los comandos.")
-    if ForeverHP_CharDB.paso == 1 and (UnitLevel("player") or 1) > 3 then
+    GF:Print("Cargada v" .. GF.version .. ". Ruta: " .. C.amarillo .. GF.RutaMeta[GF.rutaId].nombre .. C.fin ..
+      ". Escribe " .. C.amarillo .. "/guia" .. C.fin .. " para ver los comandos.")
+    if GF.razaSinRuta then
+      GF:Print(C.naranja .. "Tu raza aún no tiene ruta propia: usas la de tu facción, que empieza en otra zona." .. C.fin ..
+        " Ve hasta allí o escribe " .. C.amarillo .. "/guia nivel" .. C.fin .. " cuando tengas nivel.")
+    end
+    if ForeverAH_CharDB.paso == 1 and (UnitLevel("player") or 1) > 3 then
       GF:Print("Ya no eres nivel 1. Escribe " .. C.amarillo .. "/guia nivel" .. C.fin .. " para saltar a la parte de la guía de tu nivel.")
     end
   elseif event == "QUEST_LOG_UPDATE" or event == "QUEST_TURNED_IN" or event == "QUEST_ACCEPTED" then
@@ -536,9 +632,9 @@ end)
 ----------------------------------------------------------------------
 -- Comandos
 ----------------------------------------------------------------------
-SLASH_GUIAFOREVER1 = "/fhp"
-SLASH_GUIAFOREVER2 = "/guia"
-SlashCmdList.GUIAFOREVER = function(msg)
+SLASH_GUIAFORAH1 = "/fah"
+SLASH_GUIAFORAH2 = "/guia"
+SlashCmdList.GUIAFORAH = function(msg)
   msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
   local cmd, rest = msg:match("^(%S*)%s*(.-)$")
   if cmd == "" then
@@ -550,9 +646,10 @@ SlashCmdList.GUIAFOREVER = function(msg)
     GF:Print(C.amarillo .. "/guia oro" .. C.fin .. " - farmeos de oro para tu nivel y cómo ahorrar")
     GF:Print(C.amarillo .. "/guia prof" .. C.fin .. " - profesiones, qué recetas comprar y qué craftear")
     GF:Print(C.amarillo .. "/guia jcj" .. C.fin .. " - consejos de JcJ para tu clase")
-    GF:Print(C.amarillo .. "/guia clases" .. C.fin .. " - qué clase elegir (Humano)")
+    GF:Print(C.amarillo .. "/guia clases" .. C.fin .. " - qué clase elegir con tu raza")
+    GF:Print(C.amarillo .. "/guia ruta alianza|horda|auto" .. C.fin .. " - cambiar de ruta (normalmente se elige sola)")
     GF:Print(C.amarillo .. "/guia novedades" .. C.fin .. " - qué hay nuevo en Forever")
-    GF:Print(C.amarillo .. "/fhp progreso" .. C.fin .. " - por dónde vas, qué has hecho y qué te has saltado")
+    GF:Print(C.amarillo .. "/fah progreso" .. C.fin .. " - por dónde vas, qué has hecho y qué te has saltado")
     GF:Print(C.amarillo .. "/guia nivel" .. C.fin .. " - saltar al paso de tu nivel · " .. C.amarillo .. "/guia paso N" .. C.fin)
     GF:Print(C.amarillo .. "/guia objetivo 150" .. C.fin .. " - fijar objetivo de ahorro en oro (0 = automático)")
     GF:Print(C.amarillo .. "/guia vender | reparar | avisos" .. C.fin .. " - activar/desactivar automatismos")
@@ -568,25 +665,26 @@ SlashCmdList.GUIAFOREVER = function(msg)
   elseif cmd == "progreso" or cmd == "prog" then GF:ToggleProgress(true)
   elseif cmd == "nivel" then GF:SyncToLevel()
   elseif cmd == "paso" then GF:GoToStep(rest)
+  elseif cmd == "ruta" then GF:SetRoute(rest)
   elseif cmd == "objetivo" then
     local g = tonumber(rest)
-    if g and g > 0 then ForeverHP_CharDB.objetivoOro = g * 10000 else ForeverHP_CharDB.objetivoOro = nil end
+    if g and g > 0 then ForeverAH_CharDB.objetivoOro = g * 10000 else ForeverAH_CharDB.objetivoOro = nil end
     GF:RefreshMoney()
     GF:Print("Objetivo de ahorro: " .. (g and g > 0 and (g .. "g") or "automático"))
   elseif cmd == "vender" then
-    ForeverHP_CharDB.autoVenderGris = not ForeverHP_CharDB.autoVenderGris
-    GF:Print("Vender grises automáticamente: " .. (ForeverHP_CharDB.autoVenderGris and "SÍ" or "NO"))
+    ForeverAH_CharDB.autoVenderGris = not ForeverAH_CharDB.autoVenderGris
+    GF:Print("Vender grises automáticamente: " .. (ForeverAH_CharDB.autoVenderGris and "SÍ" or "NO"))
   elseif cmd == "reparar" then
-    ForeverHP_CharDB.autoReparar = not ForeverHP_CharDB.autoReparar
-    GF:Print("Reparar automáticamente: " .. (ForeverHP_CharDB.autoReparar and "SÍ" or "NO"))
+    ForeverAH_CharDB.autoReparar = not ForeverAH_CharDB.autoReparar
+    GF:Print("Reparar automáticamente: " .. (ForeverAH_CharDB.autoReparar and "SÍ" or "NO"))
   elseif cmd == "avisos" then
-    ForeverHP_CharDB.avisosNivel = not ForeverHP_CharDB.avisosNivel
-    GF:Print("Avisos al subir de nivel: " .. (ForeverHP_CharDB.avisosNivel and "SÍ" or "NO"))
+    ForeverAH_CharDB.avisosNivel = not ForeverAH_CharDB.avisosNivel
+    GF:Print("Avisos al subir de nivel: " .. (ForeverAH_CharDB.avisosNivel and "SÍ" or "NO"))
   elseif cmd == "reset" then
-    ForeverHP_CharDB.paso = 1
-    ForeverHP_CharDB.manual = {}
-    ForeverHP_CharDB.skipped = {}
-    ForeverHP_CharDB.deferred = {}
+    ForeverAH_CharDB.paso = 1
+    ForeverAH_CharDB.manual = {}
+    ForeverAH_CharDB.skipped = {}
+    ForeverAH_CharDB.deferred = {}
     GF:AutoAdvance()
     GF:Refresh()
     GF:Print("Guía reiniciada.")

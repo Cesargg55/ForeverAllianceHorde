@@ -1,4 +1,4 @@
--- ForeverHumans&Paladins - Interfaz: ventana de pasos y ventana de información
+-- ForeverAlliance&Horde - Interfaz: ventana de pasos y ventana de información
 local _, GF = ...
 local C = GF.C
 local BACKDROP_T = BackdropTemplateMixin and "BackdropTemplate" or nil
@@ -37,7 +37,7 @@ end
 
 local function SavePos(f, key)
   local p, _, rp, x, y = f:GetPoint()
-  ForeverHP_DB[key] = { p, rp, x, y }
+  ForeverAH_DB[key] = { p, rp, x, y }
 end
 
 local function Movable(f, key)
@@ -54,17 +54,17 @@ end
 ----------------------------------------------------------------------
 function GF:CreateMainFrame()
   if self.main then return end
-  local f = CreateFrame("Frame", "ForeverHPMain", UIParent, BACKDROP_T)
+  local f = CreateFrame("Frame", "ForeverAHMain", UIParent, BACKDROP_T)
   f:SetSize(374, 200)
   SetBackdrop(f)
   Movable(f, "pos")
-  local pos = ForeverHP_DB.pos
+  local pos = ForeverAH_DB.pos
   if pos then f:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4]) else f:SetPoint("RIGHT", UIParent, "RIGHT", -60, 120) end
-  f:SetScale(ForeverHP_DB.scale or 1)
+  f:SetScale(ForeverAH_DB.scale or 1)
 
   f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   f.title:SetPoint("TOPLEFT", 10, -8)
-  f.title:SetText(C.oro .. "ForeverHumans" .. C.fin .. C.azul .. "&Paladins" .. C.fin)
+  f.title:SetText(C.azul .. "ForeverAlliance" .. C.fin .. C.rojo .. "&Horde" .. C.fin)
 
   f.counter = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   f.counter:SetPoint("TOPRIGHT", -28, -10)
@@ -94,7 +94,7 @@ function GF:CreateMainFrame()
   f.coords:SetWidth(270)
   f.coords:SetJustifyH("LEFT")
 
-  f.flecha = MakeButton(f, "Flecha", 60, function() GF:Waypoint(GF.Ruta[ForeverHP_CharDB.paso]) end)
+  f.flecha = MakeButton(f, "Flecha", 60, function() GF:Waypoint(GF.Ruta[ForeverAH_CharDB.paso]) end)
   f.flecha:SetPoint("RIGHT", f, "RIGHT", -10, 0)
   f.flecha:SetPoint("TOP", f.coords, "TOP", 0, 4)
 
@@ -141,12 +141,12 @@ function GF:CreateMainFrame()
   f.prog:SetScript("OnLeave", GameTooltip_Hide)
 
   self.main = f
-  if ForeverHP_CharDB.ocultar then f:Hide() end
+  if ForeverAH_CharDB.ocultar then f:Hide() end
 end
 
 function GF:ToggleMain(show)
   if not self.main then return end
-  ForeverHP_CharDB.ocultar = not show
+  ForeverAH_CharDB.ocultar = not show
   if show then self.main:Show() self:Refresh() else self.main:Hide() end
 end
 
@@ -164,7 +164,7 @@ end
 function GF:Refresh()
   local f = self.main
   if not f then return end
-  local db = ForeverHP_CharDB
+  local db = ForeverAH_CharDB
   local i = db.paso
   local s = self.Ruta[i]
   if not s then return end
@@ -232,14 +232,14 @@ end
 ----------------------------------------------------------------------
 function GF:CreateInfoFrame()
   if self.info then return self.info end
-  local f = CreateFrame("Frame", "ForeverHPInfo", UIParent, BACKDROP_T)
+  local f = CreateFrame("Frame", "ForeverAHInfo", UIParent, BACKDROP_T)
   f:SetSize(520, 460)
   SetBackdrop(f)
   Movable(f, "infoPos")
-  local pos = ForeverHP_DB.infoPos
+  local pos = ForeverAH_DB.infoPos
   if pos then f:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4]) else f:SetPoint("CENTER") end
   f:SetFrameStrata("HIGH")
-  tinsert(UISpecialFrames, "ForeverHPInfo") -- se cierra con Escape
+  tinsert(UISpecialFrames, "ForeverAHInfo") -- se cierra con Escape
 
   f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   f.title:SetPoint("TOPLEFT", 12, -10)
@@ -247,7 +247,7 @@ function GF:CreateInfoFrame()
   local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", 2, 2)
 
-  local sf = CreateFrame("ScrollFrame", "ForeverHPInfoScroll", f, "UIPanelScrollFrameTemplate")
+  local sf = CreateFrame("ScrollFrame", "ForeverAHInfoScroll", f, "UIPanelScrollFrameTemplate")
   sf:SetPoint("TOPLEFT", 12, -36)
   sf:SetPoint("BOTTOMRIGHT", -32, 40)
   local content = CreateFrame("Frame", nil, sf)
@@ -319,25 +319,34 @@ function GF:InfoText(key)
     local goal, why = self:GoalInfo()
     tinsert(out, "Tienes " .. self:Money(GetMoney()) .. ". Objetivo: " .. self:Money(goal) .. " (" .. why .. ")")
     tinsert(out, " ")
+    for _, l in ipairs(self.Oro.reglasClase[class or ""] or {}) do tinsert(out, l) end
     for _, l in ipairs(self.Oro.reglas) do tinsert(out, l) end
     tinsert(out, " ")
     tinsert(out, C.oro .. "FARMEOS POR NIVEL" .. C.fin)
-    for _, fm in ipairs(self.Oro.farmeos) do
+    for _, fm in ipairs(self:GoldFarms()) do
       local col = (lvl >= fm.min and lvl <= fm.max) and C.verde or C.gris
       tinsert(out, col .. "Nv " .. fm.min .. "-" .. fm.max .. ":" .. C.fin .. " " .. fm.txt)
     end
     return Join(out)
   elseif key == "prof" then
-    return Join(self.Profesiones.texto)
+    return Join(self:ProfText())
   elseif key == "jcj" then
     local out = {}
-    for _, l in ipairs(self.JcJ.general) do tinsert(out, l) end
+    for _, l in ipairs(self.JcJ.comun) do tinsert(out, l) end
+    for _, l in ipairs(self.JcJ.general[self:Faction()] or {}) do tinsert(out, l) end
+    for _, l in ipairs(self.JcJ.teclas) do tinsert(out, l) end
     tinsert(out, " ")
     local cl = self.JcJ[class]
-    if cl then for _, l in ipairs(cl) do tinsert(out, l) end end
+    if cl then for _, l in ipairs(cl) do tinsert(out, l) end
+    else tinsert(out, C.gris .. "Aún no hay consejos de JcJ específicos para tu clase." .. C.fin) end
     return Join(out)
   elseif key == "clases" then
-    return Join(self.ClasesTexto)
+    local t = self.ClasesTexto[self:Race() or ""]
+    if not t then
+      t = self.ClasesTexto[self:Faction() == "Horde" and "Scourge" or "Human"]
+      return C.gris .. "(Tu raza aún no tiene texto propio: te muestro el de tu facción.)" .. C.fin .. "\n \n" .. Join(t)
+    end
+    return Join(t)
   elseif key == "novedades" then
     return Join(self.Novedades)
   end
@@ -348,7 +357,7 @@ local TITULOS = { habilidades="Habilidades", talentos="Talentos", oro="Oro", pro
 
 function GF:ShowInfo(key)
   local f = self:CreateInfoFrame()
-  f.title:SetText(C.oro .. "ForeverHumans" .. C.fin .. C.azul .. "&Paladins" .. C.fin .. " - " .. (TITULOS[key] or key))
+  f.title:SetText(C.azul .. "ForeverAlliance" .. C.fin .. C.rojo .. "&Horde" .. C.fin .. " - " .. (TITULOS[key] or key))
   f.text:SetText(self:InfoText(key))
   f.content:SetHeight(f.text:GetStringHeight() + 20)
   f.scroll:SetVerticalScroll(0)

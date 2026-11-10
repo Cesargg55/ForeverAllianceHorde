@@ -12,11 +12,12 @@ for t in conv['geometry']['transforms']:
     AREA2UI.setdefault(t['area_id'], t['ui_map_id'])
 AREA2NAME = {t['area_id']: t['target_name'] for t in conv['geometry']['transforms']}
 
-HUMAN = 1
-def alliance_ok(q):
+# Máscaras de raza de QuestieDB
+RACES = {'Human': 1, 'Orc': 2, 'Dwarf': 4, 'NightElf': 8, 'Scourge': 16, 'Tauren': 32, 'Gnome': 64, 'Troll': 128}
+def race_ok(q, mask):
     r = q[5]
     if r in (None, 0): return True
-    return bool(int(r) & HUMAN)
+    return bool(int(r) & mask)
 
 def qname(qid):
     e = EQ.get(str(qid))

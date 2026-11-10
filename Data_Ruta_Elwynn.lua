@@ -1,12 +1,14 @@
--- ForeverHumans&Paladins - Ruta de subida Alianza (Humano, Bosque de Elwynn)
+-- ForeverAlliance&Horde - Ruta de subida Alianza (Humano, Bosque de Elwynn)
 -- t = tipo (accept/turnin/do/go/train/level/note/zone/prof)
 -- q = ID de misión (funciona en cualquier idioma) · m = ID del mapa · x,y = coordenadas · lv = nivel aprox.
 -- Los pasos con ID de misión se completan SOLOS al recoger/entregar. El resto se marca con "Hecho".
+-- cl = paso solo para esa clase (p. ej. cl="PALADIN"). Sin cl = para todos.
+-- El resto de la ruta (10-60) está en Data_Ruta_Alianza.lua, generada con tools/planner.py.
 -- AVISO: Forever ha ampliado zonas clásicas. Si una misión no está donde dice, pulsa ">>" para saltarla.
 local _, GF = ...
 local ELWYNN, WESTFALL, SW, LOCH, REDRIDGE, DUSKWOOD, WETLANDS = 1429, 1436, 1453, 1432, 1433, 1431, 1437
 
-GF.Ruta = {
+GF:AddRoute("alianza", {
   -- ================= ABADÍA DE NORTHSHIRE (1-6) =================
   { t="note", lv=1, txt="Bienvenido. Esta guía te dice QUÉ hacer y en QUÉ orden. Los pasos de misión se marcan solos.",
     tip="Regla de oro del novato: recoge TODAS las misiones de una zona antes de salir a matar. Así matas una vez y avanzas varias misiones a la vez." },
@@ -76,7 +78,7 @@ GF.Ruta = {
   { t="turnin", q=37, lv=10, m=ELWYNN, x=72.7, y=60.3, txt="Orilla del lago: haz clic en el cadáver medio comido." },
   { t="accept", q=45, lv=10, m=ELWYNN, x=72.7, y=60.3, txt="Recoge «Descubre el destino de Rolf» del mismo cadáver." },
   { t="turnin", q=45, lv=10, m=ELWYNN, x=79.8, y=55.5, txt="Campamento múrloc al este del lago: haz clic en el cadáver de Rolf.",
-    tip="Hay muchos múrlocs juntos: tira de uno en uno y usa Imposición de manos si te ves mal." },
+    tip="Hay muchos múrlocs juntos: tira de uno en uno. Si te ves mal, usa tu botón de emergencia (Paladín: Imposición de manos)." },
   { t="accept", q=71, lv=10, m=ELWYNN, x=79.8, y=55.5, txt="Recoge «Informa a Thomas» del cadáver de Rolf." },
   { t="turnin", q=71, lv=10, m=ELWYNN, x=73.9, y=72.2, txt="Vuelve al puente: entrega al Guardia Thomas." },
   { t="turnin", q=52, lv=10, m=ELWYNN, x=73.9, y=72.2, txt="Entrega «Proteger la frontera»." },
@@ -87,8 +89,9 @@ GF.Ruta = {
   { t="turnin", q=39, lv=10, m=ELWYNN, x=42.1, y=65.9, txt="Entrega el informe de Thomas a Dughan." },
   { t="turnin", q=88, lv=10, m=ELWYNN, x=34.7, y=84.5, txt="Entrega el collar a la vieja Pedregosa." },
   { t="level", lv=10, txt="Llega a nivel 10. Si te falta poco, mata lobos/kóbolds de camino y DESUELLA/RECOLECTA todo." },
-  { t="train", lv=10, m=SW, txt="Ventormenta: entrena nivel 10. A nivel 12 la guía te llevará a tu MISIÓN DE CLASE (Redención).",
-    tip="TALENTOS: escribe /fhp talentos. Paladín: Reprensión." },
+  { t="train", lv=10, m=SW, txt="Ventormenta: entrena nivel 10 y reparte tu primer punto de talento.",
+    tip="TALENTOS: escribe /fah talentos." },
+  { t="note", lv=10, cl="PALADIN", txt="Paladín: a nivel 12 la guía te llevará a tu MISIÓN DE CLASE (Redención). Talentos: Reprensión." },
   { t="note", lv=10, txt="Banco de Ventormenta: deja aquí lo que no uses. Casa de subastas: VENDE tu cobre, lino y hierbas, pero NO compres.",
     tip="Mira el precio más bajo de la subasta, pon el tuyo un poco por debajo. 12h de duración = depósito barato." },
-}
+})

@@ -1,4 +1,4 @@
--- ForeverHumans&Paladins - Ayudante del entrenador: marca qué comprar y qué NO, y compra lo recomendado
+-- ForeverAlliance&Horde - Ayudante del entrenador: marca qué comprar y qué NO, y compra lo recomendado
 local _, GF = ...
 local C = GF.C
 local BACKDROP_T = BackdropTemplateMixin and "BackdropTemplate" or nil
@@ -39,7 +39,7 @@ end
 
 local function Panel()
   if GF.trainerPanel then return GF.trainerPanel end
-  local f = CreateFrame("Frame", "ForeverHPTrainer", UIParent, BACKDROP_T)
+  local f = CreateFrame("Frame", "ForeverAHTrainer", UIParent, BACKDROP_T)
   f:SetSize(330, 380)
   if f.SetBackdrop then
     f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -55,7 +55,7 @@ local function Panel()
   f.title:SetPoint("TOPLEFT", 10, -8)
   f.title:SetText(C.oro .. "Guía: ¿qué compro?" .. C.fin)
 
-  local sf = CreateFrame("ScrollFrame", "ForeverHPTrainerScroll", f, "UIPanelScrollFrameTemplate")
+  local sf = CreateFrame("ScrollFrame", "ForeverAHTrainerScroll", f, "UIPanelScrollFrameTemplate")
   sf:SetPoint("TOPLEFT", 10, -28)
   sf:SetPoint("BOTTOMRIGHT", -30, 40)
   local content = CreateFrame("Frame", nil, sf)
